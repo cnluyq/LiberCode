@@ -23,7 +23,7 @@ def main():
     # Setup logging system
     logger = setup_logging(
         log_dir=".team/logs",
-        console_level="INFO",
+        console_level="ERROR",
         file_level="INFO",
         use_colors=True,
         use_json=False,
@@ -79,13 +79,17 @@ def main():
         except (EOFError, KeyboardInterrupt):
             print("\nGoodbye!")
             break
-        
+
+        # Handle empty input - continue loop
+        if not query.strip():
+            continue
+
         # Handle exit
-        if query.strip().lower() in ("q", "exit", ""):
+        if query.strip().lower() in ("q", "exit"):
             log.info("User requested exit")
             print("Goodbye!")
             break
-        
+
         # Handle commands
         if query.strip() == "/team":
             log.debug("Listing team members")
