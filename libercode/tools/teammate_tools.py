@@ -1,0 +1,221 @@
+"""
+Teammate agent tools for LiberCode.
+
+Provides tool definitions and handlers for Teammate agents.
+"""
+from typing import Dict, Callable
+from libercode.taskboard.manager import TaskManager
+from libercode.messaging.bus import MessageBus
+
+
+def get_teammate_tools() -> list:
+    """
+    Get Teammate agent tool definitions.
+
+    Returns:
+        List of 11 tool definitions in Anthropic format
+    """
+    return [
+        {
+            "name": "bash",
+            "description": "Run a shell command.",
+            "input_schema": {
+                "type": "object",
+                "properties": {"command": {"type": "string"}},
+                "required": ["command"],
+            },
+        },
+        {
+            "name": "read_file",
+            "description": "Read file contents.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string"},
+                    "limit": {"type": "integer"},
+                },
+                "required": ["path"],
+            },
+        },
+        {
+            "name": "write_file",
+            "description": "Write content to file.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string"},
+                    "content": {"type": "string"},
+                },
+                "required": ["path", "content"],
+            },
+        },
+        {
+            "name": "edit_file",
+            "description": "Replace exact text in file.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string"},
+                    "old_text": {"type": "string"},
+                    "new_text": {"type": "string"},
+                },
+                "required": ["path", "old_text", "new_text"],
+            },
+        },
+        {
+            "name": "send_message",
+            "description": "Send message to a teammate.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "to": {"type": "string"},
+                    "content": {"type": "string"},
+                    "msg_type": {"type": "string"},
+                },
+                "required": ["to", "content"],
+            },
+        },
+        {
+            "name": "read_inbox",
+            "description": "Read and drain your inbox.",
+            "input_schema": {"type": "object", "properties": {}},
+        },
+        {
+            "name": "shutdown_response",
+            "description": "Respond to a shutdown request.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "request_id": {"type": "string"},
+                    "approve": {"type": "boolean"},
+                    "reason": {"type": "string"},
+                },
+                "required": ["request_id", "approve"],
+            },
+        },
+        {
+            "name": "plan_approval",
+            "description": "Submit a plan for lead approval.",
+            "input_schema": {
+                "type": "object",
+                "properties": {"plan": {"type": "string"}},
+                "required": ["plan"],
+            },
+        },
+        {
+            "name": "idle",
+            "description": "Signal that you have no more work. Enters idle polling phase.",
+            "input_schema": {"type": "object", "properties": {}},
+        },
+        {
+            "name": "claim_task",
+            "description": "Claim a task from the task board by ID.",
+            "input_schema": {
+                "type": "object",
+                "properties": {"task_id": {"type": "integer"}},
+                "required": ["task_id"],
+            },
+        },
+    ]
+
+
+def create_teammate_tool_handlers(
+    task_manager: TaskManager,
+    message_bus: MessageBus,
+    sender_name: str,
+) -> Dict[str, Callable]:
+    """
+    Create Teammate agent tool handlers.
+
+    Args:
+        task_manager: TaskManager instance
+        message_bus: MessageBus instance
+        sender_name: Name of this teammate
+
+    Returns:
+        Dict mapping tool names to handler functions
+    """
+    from libercode.tools.base import (
+        run_bash,
+        read_file,
+        write_file,
+        edit_file,
+    )
+    from libercode.messaging.protocol import Message, MessageType
+    import json
+
+    def handle_bash(**kwargs):
+        return run_bash(kwargs["command"])
+
+    def handle_read_file(**kwargs):
+        return read_file(kwargs["path"], kwargs.get("limit"))
+
+    def handle_write_file(**kwargs):
+        return write_file(kwargs["path"], kwargs["content"])
+
+    def handle_edit_file(**kwargs):
+        return edit_file(kwargs["path"], kwargs["old_text"], kwargs["new_text"])
+
+    def handle_send_message(**kwargs):
+        msg_type = MessageType(kwargs.get("msg_type", "message"))
+        msg = Message(
+            type=msg_type,
+            sender=sender_name,
+            content=kwargs["content"],
+        )
+        return message_bus.send(msg, to=kwargs["to"])
+
+    def handle_read_inbox(**kwargs):
+        messages = message_bus.read_inbox(sender_name)
+        return json.dumps([m.to_dict() for m in messages], indent=2)
+
+    def handle_shutdown_response(**kwargs):
+        msg = Message(
+            type=MessageType.SHUTDOWN_RESPONSE,
+            sender=sender_name,
+            content=kwargs.get("reason", ""),
+            extra={
+                "request_id": kwargs["request_id"],
+                "approve": kwargs["approve"],
+            },
+        )
+        return message_bus.send(msg, to="lead")
+
+    def handle_plan_approval(**kwargs):
+        import uuid
+
+        request_id = str(uuid.uuid4())[:8]
+        msg = Message(
+            type=MessageType.PLAN_APPROVAL_RESPONSE,
+            sender=sender_name,
+            content=kwargs["plan"],
+            extra={"request_id": request_id, "plan": kwargs["plan"]},
+        )
+        message_bus.send(msg, to="lead")
+        return f"Plan submitted (request_id={request_id}). Waiting for approval."
+
+    def handle_idle(**kwargs):
+        return "Entering idle phase. Will poll for new tasks."
+
+    def handle_claim_task(**kwargs):
+        # Simple claim - just update owner
+        # TODO: Add proper claim logic with status checks
+        try:
+            task = task_manager.get(kwargs["task_id"])
+            # For now, just return task info
+            return json.dumps(task.to_dict(), indent=2)
+        except Exception as e:
+            return f"Error: {e}"
+
+    return {
+        "bash": handle_bash,
+        "read_file": handle_read_file,
+        "write_file": handle_write_file,
+        "edit_file": handle_edit_file,
+        "send_message": handle_send_message,
+        "read_inbox": handle_read_inbox,
+        "shutdown_response": handle_shutdown_response,
+        "plan_approval": handle_plan_approval,
+        "idle": handle_idle,
+        "claim_task": handle_claim_task,
+    }
