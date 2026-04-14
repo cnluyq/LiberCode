@@ -1,8 +1,8 @@
-"""
-CLI entry point for LiberCode.
+"""CLI entry point for LiberCode.
 
 Provides REPL interface for user interaction.
 """
+
 import sys
 from pathlib import Path
 from anthropic import Anthropic
@@ -12,27 +12,43 @@ from libercode.taskboard.manager import TaskManager
 from libercode.messaging.bus import MessageBus
 from libercode.teammate_manager import TeammateManager
 from libercode.core.lead import LeadAgent
+from libercode.utils.logging import setup_logging, get_logger
 
 
 def main():
-    """
-    Main CLI entry point.
-
+    """Main CLI entry point.
+    
     Initializes all components and runs REPL loop.
     """
+    # Setup logging system
+    logger = setup_logging(
+        log_dir=".team/logs",
+        console_level="INFO",
+        file_level="INFO",
+        use_colors=True,
+        use_json=False,
+    )
+    log = get_logger('libercode.cli')
+    log.info("Starting LiberCode CLI")
+    
     # Load configuration
     try:
         config = Config()
+        log.debug(f"Configuration loaded: workdir={config.workdir}")
     except Exception as e:
+        log.error(f"Configuration error: {e}")
         print(f"Configuration error: {e}")
         return 1
-
+    
     # Initialize Anthropic client
     client = Anthropic(base_url=config.base_url)
-
+    log.debug("Anthropic client initialized")
+    
     # Initialize components
     message_bus = MessageBus(config.inbox_dir)
     task_manager = TaskManager(config.tasks_dir)
+    log.debug("MessageBus and TaskManager initialized")
+    
     teammate_manager = TeammateManager(
         config=config,
         message_bus=message_bus,
@@ -40,7 +56,7 @@ def main():
         client=client,
         team_dir=config.team_dir,
     )
-
+    
     # Create lead agent
     lead = LeadAgent(
         client=client,
@@ -49,12 +65,13 @@ def main():
         task_manager=task_manager,
         teammate_manager=teammate_manager,
     )
-
+    log.info("Lead agent initialized")
+    
     # Welcome message
     print("LiberCode - AI Agent for Teams")
     print("Type 'q' or 'exit' to quit")
     print()
-
+    
     # REPL loop
     while True:
         try:
@@ -62,34 +79,40 @@ def main():
         except (EOFError, KeyboardInterrupt):
             print("\nGoodbye!")
             break
-
+        
         # Handle exit
         if query.strip().lower() in ("q", "exit", ""):
+            log.info("User requested exit")
             print("Goodbye!")
             break
-
+        
         # Handle commands
         if query.strip() == "/team":
+            log.debug("Listing team members")
             print(teammate_manager.list_all())
             continue
-
+        
         if query.strip() == "/inbox":
+            log.debug("Checking inbox")
             messages = message_bus.read_inbox("lead")
             for msg in messages:
                 print(f"From {msg.sender}: {msg.content}")
             continue
-
+        
         if query.strip() == "/tokens":
+            log.debug("Token tracking requested")
             print("Token tracking not yet integrated")
             continue
-
+        
         if query.strip() == "/tasks":
+            log.debug("Listing tasks")
             print(task_manager.list_all())
             continue
-
+        
         # Process user input
+        log.debug(f"Processing user input: {query[:50]}...")
         lead.process_user_input(query)
-
+        
         # Print response
         if lead.messages:
             last_message = lead.messages[-1]
@@ -97,8 +120,9 @@ def main():
                 for block in last_message["content"]:
                     if hasattr(block, "text"):
                         print(block.text)
-            print()
-
+        print()
+    
+    log.info("LiberCode CLI shutting down")
     return 0
 
 

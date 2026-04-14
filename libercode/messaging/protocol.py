@@ -38,24 +38,33 @@ class Message:
     timestamp: float = field(default_factory=time.time)
     extra: Dict[str, Any] = field(default_factory=dict)
 
-    def to_json(self) -> str:
-        """
-        Serialize message to JSON string.
+def to_dict(self) -> Dict[str, Any]:
+    """
+    Serialize message to dictionary.
 
-        Returns:
-            JSON string with all message fields
-        """
-        data = {
-            "type": self.type.value,
-            "from": self.sender,
-            "content": self.content,
-            "timestamp": self.timestamp,
-        }
+    Returns:
+        Dictionary with all message fields
+    """
+    data = {
+        "type": self.type.value,
+        "from": self.sender,
+        "content": self.content,
+        "timestamp": self.timestamp,
+    }
 
-        # Merge extra fields
-        data.update(self.extra)
+    # Merge extra fields
+    data.update(self.extra)
 
-        return json.dumps(data)
+    return data
+
+def to_json(self) -> str:
+    """
+    Serialize message to JSON string.
+
+    Returns:
+        JSON string with all message fields
+    """
+    return json.dumps(self.to_dict())
 
     @classmethod
     def from_json(cls, json_str: str) -> "Message":

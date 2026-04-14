@@ -73,3 +73,8 @@ class MessageError(LiberCodeError):
 class WorktreeError(LiberCodeError):
     """Worktree operation errors"""
     pass
+
+# Authentication exceptions
+class AuthenticationError(LiberCodeError):
+    """Authentication operation errors"""
+    pass
