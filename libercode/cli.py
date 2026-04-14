@@ -22,7 +22,7 @@ def main():
     """
     # Setup logging system
     logger = setup_logging(
-        log_dir=".team/logs",
+        log_dir="logs",
         console_level="ERROR",
         file_level="INFO",
         use_colors=True,
