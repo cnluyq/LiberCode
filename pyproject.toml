@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "libercode"
+version = "0.1.0"
+description = "LiberCode - AI-powered coding assistant"
+requires-python = ">=3.10"
+dependencies = [
+    "anthropic",
+]
+
+[project.scripts]
+libercode = "libercode.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]

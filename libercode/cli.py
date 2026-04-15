@@ -22,7 +22,7 @@ def main():
     """
     # Setup logging system
     logger = setup_logging(
-        log_dir="logs",
+        log_dir=".libercode/logs",
         console_level="ERROR",
         file_level="DEBUG",
         use_colors=True,

@@ -26,7 +26,7 @@ class LogConfig:
     console_level: str = "INFO"
     file_level: str = "DEBUG"
 
-    log_dir: str = ".team/logs"
+    log_dir: str = ".libercode/logs"
     log_file: str = "libercode.log"
     max_bytes: int = 10 * 1024 * 1024
     backup_count: int = 5
@@ -253,8 +253,8 @@ _global_logger: Optional[LiberCodeLogger] = None
 
 
 def setup_logging(
-    log_dir: str = ".team/logs",
-    console_level: str = "INFO",
+    log_dir: str = ".libercode/logs",
+    console_level: str = "ERROR",
     file_level: str = "DEBUG",
     use_colors: bool = True,
     use_json: bool = False,

@@ -68,7 +68,15 @@ pip install anthropic python-dotenv
 
 # Set up environment
 export ANTHROPIC_API_KEY="your-api-key"
-export MODEL_ID="claude-sonnet-4-6"  # or your preferred model
+export MODEL_ID="your-model"  # or your preferred model
+export ANTHROPIC_BASE_URL=http://127.0.0.1:3456 #set if not default, such as by ccr
+
+# Install LiberCode for general use
+cd <absolute_path_of_LiberCode_repo> && pip install .
+pip install <absolute_path_of_LiberCode_repo>
+
+# Uninstall
+pip uninstall libercode
 ```
 
 ## Usage
@@ -76,6 +84,9 @@ export MODEL_ID="claude-sonnet-4-6"  # or your preferred model
 ### Quick Start
 
 ```bash
+# Run installed command
+libercode
+
 # Run LiberCode
 python -m libercode
 
