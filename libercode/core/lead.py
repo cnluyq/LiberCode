@@ -81,9 +81,7 @@ class LeadAgent:
         history_serialized = serialize_content(self.messages)
         tprint(json.dumps(history_serialized, indent=2, ensure_ascii=False))
         tprint("------------------------------------------------------------------------------------------------------------------------")
-        self.token_tracker.format_summary()
-        tprint("------------------------------------------------------------------------------------------------------------------------")
-        
+
         self._logger.info(f"Completed processing round#{self._input_counter}")
     
     def _run_llm_loop(self) -> None:
@@ -147,7 +145,7 @@ class LeadAgent:
                 return
             
             # Update token stats
-            self.token_tracker.update(response)
+            self.token_tracker.record("lead", response, duration_ms)
             
             # Log response
             tprint(f"=== [teammate lead] === {time.strftime('%Y-%m-%d %H:%M:%S')} user_input#{self._input_counter} round#{self._agent_counter} LLM response: ")

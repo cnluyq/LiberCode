@@ -137,7 +137,7 @@ class TeammateAgent:
                         return
                     
                     # Update token stats
-                    self.token_tracker.update(response)
+                    self.token_tracker.record(self.name, response, duration_ms)
                     
                     # Log response
                     tprint(f"=== [teammate {self.name}] === {time.strftime('%Y-%m-%d %H:%M:%S')} round#{round_num} LLM response: ")

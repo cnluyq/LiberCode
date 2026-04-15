@@ -13,6 +13,7 @@ from libercode.messaging.bus import MessageBus
 from libercode.teammate_manager import TeammateManager
 from libercode.core.lead import LeadAgent
 from libercode.utils.logging import setup_logging, get_logger
+from libercode.utils.token_tracker import TokenTracker
 
 
 def main():
@@ -102,12 +103,15 @@ def main():
             for msg in messages:
                 print(f"From {msg.sender}: {msg.content}")
             continue
-        
-        if query.strip() == "/tokens":
+
+        if query.strip().startswith("/tokens"):
             log.debug("Token tracking requested")
-            print("Token tracking not yet integrated")
+            parts = query.strip().split()
+            args = parts[1:] if len(parts) > 1 else []
+            tracker = TokenTracker.get_tracker()
+            print(tracker.output(args))
             continue
-        
+
         if query.strip() == "/tasks":
             log.debug("Listing tasks")
             print(task_manager.list_all())
