@@ -117,6 +117,20 @@ def main():
             print(task_manager.list_all())
             continue
         
+        if query.strip() == "/init":
+            log.debug("Running /init command to create/update AGENTS.md")
+            prompt_path = Path(__file__).parent / "prompts" / "init_agents_md.txt"
+            init_prompt = prompt_path.read_text()
+            lead.process_user_input(init_prompt)
+            if lead.messages:
+                last_message = lead.messages[-1]
+                if isinstance(last_message.get("content"), list):
+                    for block in last_message["content"]:
+                        if hasattr(block, "text"):
+                            print(block.text)
+                print()
+            continue
+
         # Process user input
         log.debug(f"Processing user input: {query[:50]}...")
         lead.process_user_input(query)
