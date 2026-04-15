@@ -47,9 +47,9 @@ class Config:
         load_dotenv(env_file, override=False)
 
         # Validate required fields
-        self.api_key = self._get_required("ANTHROPIC_API_KEY")
+        self.api_key = self._get_required("LLM_API_KEY")
         self.model_id = self._get_required("MODEL_ID")
-        self.base_url = os.getenv("ANTHROPIC_BASE_URL")
+        self.base_url = os.getenv("LLM_BASE_URL")
 
         # Setup paths
         self.workdir = Path.cwd()

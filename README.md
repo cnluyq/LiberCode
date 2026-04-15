@@ -126,9 +126,9 @@ libercode >> q              # Quit
 Create a `.env` file in your working directory:
 
 ```env
-ANTHROPIC_API_KEY=your-api-key
+LLM_API_KEY=your-api-key
 MODEL_ID=claude-sonnet-4-6
-ANTHROPIC_BASE_URL=https://api.anthropic.com  # Optional: for custom endpoints
+LLM_BASE_URL=https://api.anthropic.com  # Optional: for custom endpoints
 ```
 
 ## Task Board System
