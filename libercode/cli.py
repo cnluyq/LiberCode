@@ -10,7 +10,7 @@ from anthropic import Anthropic
 from libercode.config import Config
 from libercode.taskboard.manager import TaskManager
 from libercode.messaging.bus import MessageBus
-from libercode.teammate_manager import TeammateManager
+from libercode.core.teammate_manager import TeammateManager
 from libercode.core.lead import LeadAgent
 from libercode.utils.logging import setup_logging, get_logger
 from libercode.utils.token_tracker import TokenTracker
