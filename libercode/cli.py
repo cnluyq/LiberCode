@@ -24,7 +24,7 @@ def main():
     logger = setup_logging(
         log_dir="logs",
         console_level="ERROR",
-        file_level="INFO",
+        file_level="DEBUG",
         use_colors=True,
         use_json=False,
     )
