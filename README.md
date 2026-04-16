@@ -66,10 +66,6 @@ cd LiberCode
 # Install dependencies
 pip install anthropic python-dotenv
 
-# Set up environment
-export LLM_API_KEY=<your-api-key>
-export MODEL_ID=<model_id>
-export LLM_BASE_URL=<llm_provider_url>  # Optional: for custom endpoints, such as http://127.0.0.1:3456 for ccr
 
 # Install LiberCode for general use
 cd <absolute_path_of_LiberCode_repo> && pip install .
@@ -81,17 +77,19 @@ pip uninstall libercode
 
 ## Usage
 
+## Configuration
+
+```env
+export LLM_API_KEY=<your-api-key>
+export MODEL_ID=<model_id>
+export LLM_BASE_URL=<llm_provider_url>  # Optional: for custom endpoints, such as http://127.0.0.1:3456 for ccr
+```
+
 ### Quick Start
 
 ```bash
-# Run installed command
+# Run command
 libercode
-
-# Run LiberCode
-python -m libercode
-
-# Or using the CLI entry point
-python libercode/cli.py
 ```
 
 ### REPL Commands
@@ -120,16 +118,6 @@ libercode >> q              # Quit
    - Monitors task completion
    - Updates task statuses
    - Coordinates across teammates
-
-## Configuration
-
-Create a `.env` file in your working directory:
-
-```env
-LLM_API_KEY=<your-api-key>
-MODEL_ID=<model_id>
-LLM_BASE_URL=<llm_provider_url>  # Optional: for custom endpoints, such as http://127.0.0.1:3456 for ccr
-```
 
 ## Task Board System
 
