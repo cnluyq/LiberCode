@@ -67,9 +67,9 @@ cd LiberCode
 pip install anthropic python-dotenv
 
 # Set up environment
-export ANTHROPIC_API_KEY="your-api-key"
-export MODEL_ID="your-model"  # or your preferred model
-export ANTHROPIC_BASE_URL=http://127.0.0.1:3456 #set if not default, such as by ccr
+export LLM_API_KEY=<your-api-key>
+export MODEL_ID=<model_id>
+export LLM_BASE_URL=<llm_provider_url>  # Optional: for custom endpoints, such as http://127.0.0.1:3456 for ccr
 
 # Install LiberCode for general use
 cd <absolute_path_of_LiberCode_repo> && pip install .
@@ -126,9 +126,9 @@ libercode >> q              # Quit
 Create a `.env` file in your working directory:
 
 ```env
-LLM_API_KEY=your-api-key
-MODEL_ID=claude-sonnet-4-6
-LLM_BASE_URL=https://api.anthropic.com  # Optional: for custom endpoints
+LLM_API_KEY=<your-api-key>
+MODEL_ID=<model_id>
+LLM_BASE_URL=<llm_provider_url>  # Optional: for custom endpoints, such as http://127.0.0.1:3456 for ccr
 ```
 
 ## Task Board System
