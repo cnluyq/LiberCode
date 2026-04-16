@@ -66,10 +66,8 @@ cd LiberCode
 # Install dependencies
 pip install anthropic python-dotenv
 
-
-# Install LiberCode for general use
-cd <absolute_path_of_LiberCode_repo> && pip install .
-pip install <absolute_path_of_LiberCode_repo>
+# Install LiberCode
+pip install .
 
 # Uninstall
 pip uninstall libercode
@@ -79,7 +77,7 @@ pip uninstall libercode
 
 ## Configuration
 
-```env
+```bash
 export LLM_API_KEY=<your-api-key>
 export MODEL_ID=<model_id>
 export LLM_BASE_URL=<llm_provider_url>  # Optional: for custom endpoints, such as http://127.0.0.1:3456 for ccr
