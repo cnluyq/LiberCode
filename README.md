@@ -248,14 +248,6 @@ Contributions welcome! Please ensure:
 3. Exception handling with custom exceptions
 4. Backward compatibility with existing APIs
 
-## License
-
-[Your License Here]
-
-## Author
-
-YQ
-
 ## Acknowledgments
 
 Assisted-by AI
