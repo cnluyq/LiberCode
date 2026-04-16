@@ -271,4 +271,5 @@ YQ
 
 ## Acknowledgments
 
-Built with [Anthropic Claude API](https://www.anthropic.com/)
+Assisted-by AI
+/init prompt is referred from opencode project
