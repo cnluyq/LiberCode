@@ -272,4 +272,6 @@ YQ
 ## Acknowledgments
 
 Assisted-by AI
-/init prompt is referred from opencode project
+
+/init and /review prompts are referred from opencode project
+
