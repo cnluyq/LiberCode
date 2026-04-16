@@ -75,7 +75,7 @@ pip uninstall libercode
 
 ## Usage
 
-## Configuration
+### Configuration
 
 ```bash
 export LLM_API_KEY=<your-api-key>
