@@ -194,6 +194,11 @@ class LeadAgent:
         from libercode.tools.lead_tools import get_lead_tools
         return get_lead_tools()
     
+    def clear_messages(self) -> None:
+        """Clear lead agent's message history."""
+        self.messages.clear()
+        self._logger.info("Lead message history cleared")
+
     def _get_tool_handler(self, tool_name: str):
         """Get handler for specific tool."""
         from libercode.tools.lead_tools import create_lead_tool_handlers

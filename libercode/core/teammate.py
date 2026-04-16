@@ -223,6 +223,11 @@ class TeammateAgent:
             if self.pty_file:
                 self.pty_file.close()
     
+    def clear_messages(self) -> None:
+        """Clear teammate's message history."""
+        self.messages.clear()
+        self._logger.info(f"Teammate {self.name} message history cleared")
+
     def _get_tools(self) -> List[Dict]:
         """Get teammate tools."""
         from libercode.tools.teammate_tools import get_teammate_tools

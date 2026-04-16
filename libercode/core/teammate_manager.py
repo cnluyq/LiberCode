@@ -35,6 +35,7 @@ class TeammateManager:
     client: Anthropic
     team_dir: Path
     threads: Dict[str, threading.Thread] = field(default_factory=dict)
+    _teammates: Dict[str, TeammateAgent] = field(default_factory=dict, repr=False)
 
     def __post_init__(self):
         """Initialize team directory and load config"""
@@ -105,6 +106,9 @@ class TeammateManager:
             task_manager=self.task_manager,
             pty_file=pty_file,
         )
+
+        # Store teammate instance for later access
+        self._teammates[name] = teammate
 
         # Start thread
         team_name = self._team_config.get("team_name", "default")
@@ -183,3 +187,15 @@ class TeammateManager:
             List of names
         """
         return [m["name"] for m in self._team_config.get("members", [])]
+
+    def get_teammate(self, name: str) -> Optional[TeammateAgent]:
+        """
+        Get teammate instance by name.
+
+        Args:
+            name: Teammate name
+
+        Returns:
+            TeammateAgent instance or None if not found
+        """
+        return self._teammates.get(name)

@@ -80,7 +80,8 @@ pip uninstall libercode
 ```bash
 export LLM_API_KEY=<your-api-key>
 export MODEL_ID=<model_id>
-export LLM_BASE_URL=<llm_provider_url>  # Optional: for custom endpoints, such as http://127.0.0.1:3456 for ccr
+export LLM_BASE_URL=<llm_provider_url>
+#such as https://api.deepseek.com/anthropic, http://127.0.0.1:3456 for ccr, etc.
 ```
 
 ### Quick Start
