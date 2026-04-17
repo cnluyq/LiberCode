@@ -94,6 +94,13 @@ tmux new-session -s LiberCode "libercode; echo 'press enter to exit...'; read"
 
 # Run command if no tmux
 libercode
+
+#example：
+[user@localhost ~]tmux new-session -s LiberCode "libercode; echo 'press enter to exit...'; read"
+LiberCode - AI Agent for Teams
+Type 'q' or 'exit' to quit
+
+libercode >> 任务：使用C语言创建简单计算器。如果需要，可以分解成多个子任务，并创建多个队员来完成。
 ```
 
 ### REPL Commands
