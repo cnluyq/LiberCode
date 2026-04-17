@@ -14,6 +14,7 @@ from enum import Enum
 class MessageType(str, Enum):
     """Message type enumeration"""
     MESSAGE = "message"
+    NOTIFICATION = "notification"
     BROADCAST = "broadcast"
     SHUTDOWN_REQUEST = "shutdown_request"
     SHUTDOWN_RESPONSE = "shutdown_response"

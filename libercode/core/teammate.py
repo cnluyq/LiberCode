@@ -315,8 +315,6 @@ class TeammateAgent:
         if self.config.debug: 
             tprint("------------------------------------------------------------------------------------------------------------------------")
             tprint(f"=== [teammate {self.name}] === {time.strftime('%Y-%m-%d %H:%M:%S')} claimed task: {task_prompt} ")
-        else:
-            tprint(f"claimed task: {task_prompt} ")
 
         # Add to messages
         if len(self.messages) <= 3:

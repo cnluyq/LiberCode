@@ -70,7 +70,7 @@ def get_teammate_tools() -> list:
                 "properties": {
                     "to": {"type": "string"},
                     "content": {"type": "string"},
-                    "msg_type": {"type": "string"},
+                    "msg_type": {"type": "string", "enum": ["message", "notification", "broadcast", "shutdown_response", "plan_approval"]},
                 },
                 "required": ["to", "content"],
             },
@@ -186,7 +186,7 @@ def create_teammate_tool_handlers(
 
         request_id = str(uuid.uuid4())[:8]
         msg = Message(
-            type=MessageType.PLAN_APPROVAL_RESPONSE,
+            type=MessageType.PLAN_APPROVAL,
             sender=sender_name,
             content=kwargs["plan"],
             extra={"request_id": request_id, "plan": kwargs["plan"]},

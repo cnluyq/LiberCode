@@ -82,12 +82,17 @@ export LLM_API_KEY=<your-api-key>
 export MODEL_ID=<model_id>
 export LLM_BASE_URL=<llm_provider_url> # Base URL (optional, for Anthropic-compatible providers or local proxy/router)
 #such as https://api.deepseek.com/anthropic, http://127.0.0.1:3456 for ccr, etc.
+
+export LIBERCODE_DEBUG=true  #set debug mode
 ```
 
 ### Quick Start
 
 ```bash
-# Run command
+# Run in tmux
+tmux new-session -s LiberCode "libercode; echo 'press enter to exit...'; read"
+
+# Run command if no tmux
 libercode
 ```
 

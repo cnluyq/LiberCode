@@ -131,7 +131,7 @@ def get_lead_tools() -> list:
                 "properties": {
                     "to": {"type": "string"},
                     "content": {"type": "string"},
-                    "msg_type": {"type": "string", "enum": ["message", "broadcast", "shutdown_request", "shutdown_response", "plan_approval_response"]},
+                    "msg_type": {"type": "string", "enum": ["message", "notification", "broadcast", "shutdown_request", "plan_approval_response"]},
                 },
                 "required": ["to", "content"],
             },
@@ -259,6 +259,10 @@ def create_lead_tool_handlers(
         # TODO: Implement shutdown protocol
         return f"Shutdown request for {kwargs['teammate']} not yet implemented"
 
+    def handle_plan_approval_response(**kwargs):
+        # TODO: Implement plan approval response protocol
+        return f"Plan approval response for {kwargs['teammate']} not yet implemented"
+
     return {
         "bash": handle_bash,
         "read_file": handle_read_file,
@@ -273,5 +277,6 @@ def create_lead_tool_handlers(
         "send_message": handle_send_message,
         "read_inbox": handle_read_inbox,
         "broadcast": handle_broadcast,
+        "plan_approval_response": handle_plan_approval_response,
         "shutdown_request": handle_shutdown_request,
     }
