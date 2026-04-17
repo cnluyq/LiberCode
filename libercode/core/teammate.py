@@ -17,7 +17,7 @@ from libercode.messaging.protocol import MessageType
 from libercode.messaging.serialization import serialize_content
 from libercode.utils.token_tracker import TokenTracker
 from libercode.utils.logging import get_logger, log_task_event, log_agent_event, log_llm_call
-from libercode.ui.output import tprint
+from libercode.ui.output import tprint, format_llm_response
 from libercode.exceptions import TaskClaimError
 
 
@@ -69,7 +69,8 @@ class TeammateAgent:
         try:
             log_agent_event(self.name, 'started', {'role': self.role})
             self._logger.info(f"Teammate {self.name} thread started, pty_file={self.pty_file}")
-            tprint(f"Teammate {self.name} thread started, pty_file={self.pty_file}")
+            if self.config.debug:
+                tprint(f"Teammate {self.name} thread started, pty_file={self.pty_file}")
             
             # System prompt
             sys_prompt = (
@@ -97,8 +98,9 @@ class TeammateAgent:
                         self.messages.append({"role": "user", "content": json.dumps(msg.to_dict())})
                     
                     # Call LLM
-                    tprint("------------------------------------------------------------------------------------------------------------------------")
-                    tprint(f"=== [teammate {self.name}] === {time.strftime('%Y-%m-%d %H:%M:%S')} round#{round_num} calling LLM ......")
+                    if self.config.debug:
+                        tprint("------------------------------------------------------------------------------------------------------------------------")
+                        tprint(f"=== [teammate {self.name}] === {time.strftime('%Y-%m-%d %H:%M:%S')} round#{round_num} calling LLM ......")
                     
                     start_time = time.time()
                     try:
@@ -124,12 +126,14 @@ class TeammateAgent:
                         if hasattr(e, 'status_code'):
                             if e.status_code == 500:
                                 self._logger.warning("LLM internal error, sleeping and retrying")
-                                tprint("LLM internal error, sleep and retry")
+                                if self.config.debug:
+                                    tprint("LLM internal error, sleep and retry")
                                 time.sleep(30)
                                 continue
                             elif e.status_code == 429:
                                 self._logger.warning("Rate limit exceeded, sleeping and retrying")
-                                tprint("RateLimitError, sleep and retry")
+                                if self.config.debug:
+                                    tprint("RateLimitError, sleep and retry")
                                 time.sleep(30)
                                 continue
                         self._logger.error(f"Exception during LLM call: {e}")
@@ -140,10 +144,13 @@ class TeammateAgent:
                     self.token_tracker.record(self.name, response, duration_ms)
                     
                     # Log response
-                    tprint(f"=== [teammate {self.name}] === {time.strftime('%Y-%m-%d %H:%M:%S')} round#{round_num} LLM response: ")
-                    if hasattr(response, "model_dump"):
-                        tprint(json.dumps(response.model_dump(), indent=2, ensure_ascii=False))
-                    
+                    if self.config.debug:
+                        tprint(f"=== [teammate {self.name}] === {time.strftime('%Y-%m-%d %H:%M:%S')} round#{round_num} LLM response: ")
+                        if hasattr(response, "model_dump"):
+                            tprint(json.dumps(response.model_dump(), indent=2, ensure_ascii=False))
+                    else:
+                        format_llm_response(response,"teammate {self.name}")
+
                     self.messages.append({"role": "assistant", "content": response.content})
                     
                     # Check if done
@@ -161,18 +168,23 @@ class TeammateAgent:
                                 log_agent_event(self.name, 'idle', {'round': round_num})
                                 self._logger.debug("Entering idle phase")
                             else:
+                                if not self.config.debug:
+                                    tprint(f"{block.name}: \n{block.input}\n")
                                 output = self._execute_tool(block.name, block.input)
                             results.append({
                                 "type": "tool_result",
                                 "tool_use_id": block.id,
                                 "content": str(output),
                             })
-                            
-                            tprint("------------------------------------------------------------------------------------------------------------------------")
-                            tprint(f"=== [teammate {self.name}] === {time.strftime('%Y-%m-%d %H:%M:%S')} round#{round_num} \"{block.name}\" result: ")
-                            results_serialized = serialize_content(results)
-                            tprint(json.dumps(results_serialized, indent=2, ensure_ascii=False))
-                    
+
+                            if self.config.debug:
+                                tprint("------------------------------------------------------------------------------------------------------------------------")
+                                tprint(f"=== [teammate {self.name}] === {time.strftime('%Y-%m-%d %H:%M:%S')} round#{round_num} \"{block.name}\" result: ")
+                                results_serialized = serialize_content(results)
+                                tprint(json.dumps(results_serialized, indent=2, ensure_ascii=False))
+                            else:
+                                tprint(f"{str(output)}")
+
                     self.messages.append({"role": "user", "content": results})
                     
                     if idle_requested:
@@ -299,10 +311,13 @@ class TeammateAgent:
             f"{task.get('description', '')}</auto-claimed>"
             f"When the task complete, send message to 'lead' with task-id and status to notify lead to update task status. Then use idle tool to back to idle state</auto-claimed>"
         )
-        
-        tprint("------------------------------------------------------------------------------------------------------------------------")
-        tprint(f"=== [teammate {self.name}] === {time.strftime('%Y-%m-%d %H:%M:%S')} claimed task: {task_prompt} ")
-        
+
+        if self.config.debug: 
+            tprint("------------------------------------------------------------------------------------------------------------------------")
+            tprint(f"=== [teammate {self.name}] === {time.strftime('%Y-%m-%d %H:%M:%S')} claimed task: {task_prompt} ")
+        else:
+            tprint(f"claimed task: {task_prompt} ")
+
         # Add to messages
         if len(self.messages) <= 3:
             # Add identity block

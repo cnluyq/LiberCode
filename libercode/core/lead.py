@@ -17,7 +17,7 @@ from libercode.messaging.bus import MessageBus
 from libercode.messaging.serialization import serialize_content
 from libercode.utils.token_tracker import TokenTracker
 from libercode.utils.logging import get_logger, log_task_event, log_agent_event, log_llm_call
-from libercode.ui.output import tprint
+from libercode.ui.output import tprint, format_llm_response
 from libercode.exceptions import LLMInternalError, LLMRateLimitError
 
 
@@ -62,25 +62,27 @@ class LeadAgent:
         # Increment counters
         self._input_counter += 1
         self._agent_counter = 0
-        
+
         # Log input
         self._logger.info(f"Processing user input (round#{self._input_counter})")
         self._logger.debug(f"Input query: {query[:100]}...")
-        
-        tprint("------------------------------------------------------------------------------------------------------------------------")
-        tprint(f"<<<<<< [teammate lead] history input (round#{self._input_counter}) {time.strftime('%Y-%m-%d %H:%M:%S')} >>>>>>")
-        history_serialized = serialize_content(self.messages)
-        tprint(json.dumps(history_serialized, indent=2, ensure_ascii=False))
-        
+
+        if self.config.debug:
+            tprint("------------------------------------------------------------------------------------------------------------------------")
+            tprint(f"<<<<<< [teammate lead] history input (round#{self._input_counter}) {time.strftime('%Y-%m-%d %H:%M:%S')} >>>>>>")
+            history_serialized = serialize_content(self.messages)
+            tprint(json.dumps(history_serialized, indent=2, ensure_ascii=False))
+
         # Run agent loop
         self._run_llm_loop()
-        
+
         # Log output
-        tprint("------------------------------------------------------------------------------------------------------------------------")
-        tprint(f"<<<<<< [teammate lead] history output (round#{self._input_counter}) {time.strftime('%Y-%m-%d %H:%M:%S')} >>>>>>")
-        history_serialized = serialize_content(self.messages)
-        tprint(json.dumps(history_serialized, indent=2, ensure_ascii=False))
-        tprint("------------------------------------------------------------------------------------------------------------------------")
+        if self.config.debug:
+            tprint("------------------------------------------------------------------------------------------------------------------------")
+            tprint(f"<<<<<< [teammate lead] history output (round#{self._input_counter}) {time.strftime('%Y-%m-%d %H:%M:%S')} >>>>>>")
+            history_serialized = serialize_content(self.messages)
+            tprint(json.dumps(history_serialized, indent=2, ensure_ascii=False))
+            tprint("------------------------------------------------------------------------------------------------------------------------")
 
         self._logger.info(f"Completed processing round#{self._input_counter}")
     
@@ -104,8 +106,9 @@ class LeadAgent:
                 })
             
             # Call LLM
-            tprint("------------------------------------------------------------------------------------------------------------------------")
-            tprint(f"=== [teammate lead] === {time.strftime('%Y-%m-%d %H:%M:%S')} user_input#{self._input_counter} round#{self._agent_counter} calling LLM ......")
+            if self.config.debug:
+                tprint("------------------------------------------------------------------------------------------------------------------------")
+                tprint(f"=== [teammate lead] === {time.strftime('%Y-%m-%d %H:%M:%S')} user_input#{self._input_counter} round#{self._agent_counter} calling LLM ......")
             
             start_time = time.time()
             try:
@@ -130,14 +133,16 @@ class LeadAgent:
             except Exception as e:
                 # Handle rate limits and errors
                 if hasattr(e, 'status_code'):
-                    if e.status_code == 500:
+                    if e.status_code == 500 or e.status_code == 502:
                         self._logger.warning("LLM internal error, sleeping and retrying")
-                        tprint("LLM internal error, sleep and retry")
+                        if self.config.debug:
+                            tprint("LLM internal error, sleep and retry")
                         time.sleep(30)
                         continue
                     elif e.status_code == 429:
                         self._logger.warning("Rate limit exceeded, sleeping and retrying")
-                        tprint("RateLimitError, sleep and retry")
+                        if self.config.debug:
+                            tprint("RateLimitError, sleep and retry")
                         time.sleep(30)
                         continue
                 self._logger.error(f"Exception during LLM call: {e}")
@@ -146,12 +151,16 @@ class LeadAgent:
             
             # Update token stats
             self.token_tracker.record("lead", response, duration_ms)
-            
-            # Log response
-            tprint(f"=== [teammate lead] === {time.strftime('%Y-%m-%d %H:%M:%S')} user_input#{self._input_counter} round#{self._agent_counter} LLM response: ")
-            if hasattr(response, "model_dump"):
-                tprint(json.dumps(response.model_dump(), indent=2, ensure_ascii=False))
-            
+           
+            if self.config.debug:
+                # Log response
+                tprint(f"=== [teammate lead] === {time.strftime('%Y-%m-%d %H:%M:%S')} user_input#{self._input_counter} round#{self._agent_counter} LLM response: ")
+                if hasattr(response, "model_dump"):
+                    tprint(json.dumps(response.model_dump(), indent=2, ensure_ascii=False))
+            else: 
+                format_llm_response(response,"team lead")
+                tprint()
+
             # Add response to messages
             self.messages.append({"role": "assistant", "content": response.content})
             
@@ -166,6 +175,9 @@ class LeadAgent:
                 if block.type == "tool_use":
                     self._logger.info(f"Executing tool: {block.name}")
                     handler = self._get_tool_handler(block.name)
+                    if not self.config.debug:
+                        tprint(f"{block.name}: \n{block.input}\n")
+
                     try:
                         output = handler(**block.input) if handler else f"Unknown tool: {block.name}"
                     except Exception as e:
@@ -177,12 +189,15 @@ class LeadAgent:
                         "content": str(output),
                     })
                     
-                    # Log tool result
-                    tprint("------------------------------------------------------------------------------------------------------------------------")
-                    tprint(f"=== [teammate lead] === {time.strftime('%Y-%m-%d %H:%M:%S')} user_input#{self._input_counter} round#{self._agent_counter} user_run_tool \"{block.name}\" result: ")
-                    results_serialized = serialize_content(results)
-                    tprint(json.dumps(results_serialized, indent=2, ensure_ascii=False))
-            
+                    if self.config.debug:
+                        # Log tool result
+                        tprint("------------------------------------------------------------------------------------------------------------------------")
+                        tprint(f"=== [teammate lead] === {time.strftime('%Y-%m-%d %H:%M:%S')} user_input#{self._input_counter} round#{self._agent_counter} user_run_tool \"{block.name}\" result: ")
+                        results_serialized = serialize_content(results)
+                        tprint(json.dumps(results_serialized, indent=2, ensure_ascii=False))
+                    else:
+                        tprint(f"{str(output)}\n")
+
             self.messages.append({"role": "user", "content": results})
     
     def _get_system_prompt(self) -> str:

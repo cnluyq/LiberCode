@@ -77,8 +77,9 @@ class TeammateManager:
             try:
                 pty_path = self._create_tmux_pane_for_teammate(name)
                 pty_file = open(pty_path, 'w', buffering=1)
-                pty_file.write(f"Teammate {name} pane initialized.\n")
-                pty_file.flush()
+                if self.config.debug:
+                    pty_file.write(f"Teammate {name} pane initialized.\n")
+                    pty_file.flush()
             except Exception as e:
                 # Tmux failed, use shared output
                 pass

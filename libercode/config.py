@@ -34,6 +34,7 @@ class Config:
     # Runtime parameters
     poll_interval: int
     idle_timeout: int
+    debug: bool
 
     def __init__(self, env_file: str | None = None):
         """
@@ -60,6 +61,7 @@ class Config:
         # Runtime parameters
         self.poll_interval = 5  # seconds
         self.idle_timeout = 60  # seconds
+        self.debug = os.getenv("LIBERCODE_DEBUG", "false").lower() == "true"
 
         # Handle base_url side effect from original code
         if self.base_url:

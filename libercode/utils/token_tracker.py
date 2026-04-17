@@ -238,7 +238,7 @@ class TokenTracker:
             Formatted multi-line string
         """
         lines = [
-            "=== Token Usage Statistics (total from session start) ===",
+            "=== Token Usage Statistics ===",
             f"Total calls: {summary['call_count']}",
             f"Input tokens: {summary['input_tokens']}",
             f"Output tokens: {summary['output_tokens']}",

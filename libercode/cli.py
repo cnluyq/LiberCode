@@ -116,8 +116,11 @@ def main():
             if query.strip() == "/inbox":
                 log.debug("Checking inbox")
                 messages = message_bus.read_inbox("lead")
-                for msg in messages:
-                    print(f"From {msg.sender}: {msg.content}")
+                if not messages:
+                    print("No messages in inbox.")
+                else:
+                    for msg in messages:
+                        print(f"From {msg.sender}: {msg.content}")
                 continue
 
             if query.strip().startswith("/tokens"):

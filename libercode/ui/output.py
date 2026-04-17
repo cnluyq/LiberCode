@@ -6,6 +6,7 @@ Provides thread-local output redirection so each agent can write to its own dest
 
 import sys
 import threading
+import re
 from typing import TextIO, Optional
 from contextlib import contextmanager
 
@@ -83,3 +84,21 @@ class OutputManager:
 
 # Global function for convenience
 tprint = OutputManager.tprint
+
+
+def format_llm_response(response, agent_name: str) -> None:
+    """
+    Format and print LLM response in user-friendly format.
+    
+    Args:
+        response_content: List of content blocks from LLM response
+        agent_name: Name of the agent for display
+    """
+    for block in response.content:
+        if hasattr(block, 'type'):
+            if block.type == 'text':
+                text = getattr(block, 'text', '')
+                if '<think>' in text or '<thinking>' in text:
+                    text = re.sub(r'<think(?:ing)?>', 'Thinking: ', text, flags=re.IGNORECASE)
+                    text = re.sub(r'</think(?:ing)?>', '', text, flags=re.IGNORECASE)
+                tprint(text)
