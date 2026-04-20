@@ -14,6 +14,7 @@ from libercode.core.teammate_manager import TeammateManager
 from libercode.core.lead import LeadAgent
 from libercode.utils.logging import setup_logging, get_logger
 from libercode.utils.token_tracker import TokenTracker
+from libercode.ui.output import tprint
 
 
 def main():
@@ -38,7 +39,7 @@ def main():
         log.debug(f"Configuration loaded: workdir={config.workdir}")
     except Exception as e:
         log.error(f"Configuration error: {e}")
-        print(f"Configuration error: {e}")
+        tprint(f"Configuration error: {e}")
         return 1
     
     # Initialize Anthropic client
@@ -69,16 +70,16 @@ def main():
     log.info("Lead agent initialized")
     
     # Welcome message
-    print("LiberCode - AI Agent for Teams")
-    print("Type 'q' or 'exit' to quit")
-    print()
+    tprint("LiberCode - AI Agent for Teams")
+    tprint("Type 'q' or 'exit' to quit")
+    tprint()
     
     # REPL loop
     while True:
         try:
             query = input("\033[36mlibercode >> \033[0m")
         except (EOFError, KeyboardInterrupt):
-            print("\nGoodbye!")
+            tprint("\nGoodbye!")
             break
 
         # Handle empty input - continue loop
@@ -88,39 +89,39 @@ def main():
         # Handle exit
         if query.strip().lower() in ("q", "exit"):
             log.info("User requested exit")
-            print("Goodbye!")
+            tprint("Goodbye!")
             break
         if query.strip().startswith("/"):
             # Handle commands
             if query.strip() == "/help":
                 log.debug("Displaying help")
-                print("Available commands:")
-                print("  /help              - Show this help message")
-                print("  /team              - List all team members")
-                print("  /inbox             - Check lead's inbox messages")
-                print("  /tokens            - Show token usage statistics")
-                print("  /tasks             - List all tasks")
-                print("  /init              - Initialize/update AGENTS.md")
-                print("  /review            - Review the project")
-                print("  /clear             - Clear lead's message history")
-                print("  /clear <teammate>  - Clear specific teammate's message history")
-                print("  /clear all         - Clear lead and all teammates' message history")
-                print("  q, exit            - Exit the application")
+                tprint("Available commands:")
+                tprint("  /help              - Show this help message")
+                tprint("  /team              - List all team members")
+                tprint("  /inbox             - Check lead's inbox messages")
+                tprint("  /tokens            - Show token usage statistics")
+                tprint("  /tasks             - List all tasks")
+                tprint("  /init              - Initialize/update AGENTS.md")
+                tprint("  /review            - Review the project")
+                tprint("  /clear             - Clear lead's message history")
+                tprint("  /clear <teammate>  - Clear specific teammate's message history")
+                tprint("  /clear all         - Clear lead and all teammates' message history")
+                tprint("  q, exit            - Exit the application")
                 continue
 
             if query.strip() == "/team":
                 log.debug("Listing team members")
-                print(teammate_manager.list_all())
+                tprint(teammate_manager.list_all())
                 continue
 
             if query.strip() == "/inbox":
                 log.debug("Checking inbox")
                 messages = message_bus.read_inbox("lead")
                 if not messages:
-                    print("No messages in inbox.")
+                    tprint("No messages in inbox.")
                 else:
                     for msg in messages:
-                        print(f"From {msg.sender}: {msg.content}")
+                        tprint(f"From {msg.sender}: {msg.content}")
                 continue
 
             if query.strip().startswith("/tokens"):
@@ -128,12 +129,12 @@ def main():
                 parts = query.strip().split()
                 args = parts[1:] if len(parts) > 1 else []
                 tracker = TokenTracker.get_tracker()
-                print(tracker.output(args))
+                tprint(tracker.output(args))
                 continue
 
             if query.strip() == "/tasks":
                 log.debug("Listing tasks")
-                print(task_manager.list_all())
+                tprint(task_manager.list_all())
                 continue
             
             if query.strip() == "/init":
@@ -146,8 +147,8 @@ def main():
                     if isinstance(last_message.get("content"), list):
                         for block in last_message["content"]:
                             if hasattr(block, "text"):
-                                print(block.text)
-                print()
+                                tprint(block.text)
+                tprint()
                 continue
 
             if query.strip() == "/review":
@@ -160,8 +161,8 @@ def main():
                     if isinstance(last_message.get("content"), list):
                         for block in last_message["content"]:
                             if hasattr(block, "text"):
-                                print(block.text)
-                print()
+                                tprint(block.text)
+                tprint()
                 continue
 
             # Handle /clear command
@@ -173,7 +174,7 @@ def main():
                 if not args:
                     # Clear lead's messages only
                     lead.clear_messages()
-                    print("Lead message history cleared.")
+                    tprint("Lead message history cleared.")
                 elif args[0] == "all":
                     # Clear lead and all teammates
                     lead.clear_messages()
@@ -182,19 +183,19 @@ def main():
                         teammate = teammate_manager.get_teammate(name)
                         if teammate:
                             teammate.clear_messages()
-                    print("All message histories cleared (lead and all teammates).")
+                    tprint("All message histories cleared (lead and all teammates).")
                 else:
                     # Clear specific teammate's messages
                     teammate_name = args[0]
                     teammate = teammate_manager.get_teammate(teammate_name)
                     if teammate:
                         teammate.clear_messages()
-                        print(f"Teammate '{teammate_name}' message history cleared.")
+                        tprint(f"Teammate '{teammate_name}' message history cleared.")
                     else:
-                        print(f"Error: Teammate '{teammate_name}' not found.")
+                        tprint(f"Error: Teammate '{teammate_name}' not found.")
                 continue
 
-            print(f"Error: No matching command")
+            tprint(f"Error: No matching command")
             continue
 
 
@@ -208,8 +209,8 @@ def main():
             if isinstance(last_message.get("content"), list):
                 for block in last_message["content"]:
                     if hasattr(block, "text"):
-                        print(block.text)
-        print()
+                        tprint(block.text, color="blue", style="bold")
+        tprint()
     
     log.info("LiberCode CLI shutting down")
     return 0

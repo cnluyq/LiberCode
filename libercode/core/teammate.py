@@ -247,17 +247,48 @@ class TeammateAgent:
     
     def _execute_tool(self, tool_name: str, args: Dict) -> str:
         """Execute a tool."""
-        from libercode.tools.teammate_tools import create_teammate_tool_handlers
-        
+        from libercode.tools.teammate_tools import create_teammate_tool_handlers, get_teammate_tools
+
+        validation_error = self._validate_tool_args(tool_name, args)
+        if validation_error:
+            self._logger.warning(f"Tool args validation failed: {validation_error}")
+            return validation_error
+
         handlers = create_teammate_tool_handlers(
             task_manager=self.task_manager,
             message_bus=self.message_bus,
             sender_name=self.name,
         )
-        
+
         self._logger.debug(f"Executing tool: {tool_name}")
         handler = handlers.get(tool_name)
         return handler(**args) if handler else f"Unknown tool: {tool_name}"
+
+    def _validate_tool_args(self, tool_name: str, args: Dict) -> str | None:
+        """Validate tool arguments against schema. Returns error message if invalid."""
+        from libercode.tools.teammate_tools import get_teammate_tools
+
+        tools = get_teammate_tools()
+        tool_schema = next((t for t in tools if t["name"] == tool_name), None)
+        if not tool_schema:
+            return None
+
+        schema = tool_schema.get("input_schema", {})
+        properties = schema.get("properties", {})
+
+        errors = []
+        for prop_name, prop_spec in properties.items():
+            if prop_name in args:
+                if "enum" in prop_spec:
+                    if args[prop_name] not in prop_spec["enum"]:
+                        errors.append(
+                            f"  - Field '{prop_name}': got '{args[prop_name]}', "
+                            f"expected one of {prop_spec['enum']}"
+                        )
+
+        if errors:
+            return f"Tool '{tool_name}' arguments validation failed:\n" + "\n".join(errors)
+        return None
     
     def _scan_unclaimed_tasks(self) -> List[Dict]:
         """Scan for unclaimed tasks."""

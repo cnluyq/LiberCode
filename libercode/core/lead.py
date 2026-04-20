@@ -157,9 +157,6 @@ class LeadAgent:
                 tprint(f"=== [teammate lead] === {time.strftime('%Y-%m-%d %H:%M:%S')} user_input#{self._input_counter} round#{self._agent_counter} LLM response: ")
                 if hasattr(response, "model_dump"):
                     tprint(json.dumps(response.model_dump(), indent=2, ensure_ascii=False))
-            else: 
-                format_llm_response(response,"team lead")
-                tprint()
 
             # Add response to messages
             self.messages.append({"role": "assistant", "content": response.content})
@@ -168,7 +165,11 @@ class LeadAgent:
             if response.stop_reason != "tool_use":
                 self._logger.debug("LLM loop completed without tool use")
                 return
-            
+           
+            if not self.config.debug:
+                format_llm_response(response,"team lead")
+                tprint()
+
             # Execute tools
             results = []
             for block in response.content:
@@ -176,7 +177,7 @@ class LeadAgent:
                     self._logger.info(f"Executing tool: {block.name}")
                     handler = self._get_tool_handler(block.name)
                     if not self.config.debug:
-                        tprint(f"{block.name}: \n{block.input}\n")
+                        tprint(f"{block.name}: \n{block.input}\n", color="blue")
 
                     try:
                         output = handler(**block.input) if handler else f"Unknown tool: {block.name}"
@@ -196,7 +197,7 @@ class LeadAgent:
                         results_serialized = serialize_content(results)
                         tprint(json.dumps(results_serialized, indent=2, ensure_ascii=False))
                     else:
-                        tprint(f"{str(output)}\n")
+                        tprint(f"{str(output)}\n", color="yellow", style="italic")
 
             self.messages.append({"role": "user", "content": results})
     

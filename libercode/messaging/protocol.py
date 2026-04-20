@@ -19,6 +19,7 @@ class MessageType(str, Enum):
     SHUTDOWN_REQUEST = "shutdown_request"
     SHUTDOWN_RESPONSE = "shutdown_response"
     PLAN_APPROVAL_RESPONSE = "plan_approval_response"
+    PLAN_APPROVAL = "plan_approval"
 
 
 @dataclass
