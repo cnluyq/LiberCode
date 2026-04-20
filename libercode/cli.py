@@ -43,7 +43,7 @@ def main():
         return 1
     
     # Initialize Anthropic client
-    client = Anthropic(base_url=config.base_url)
+    client = Anthropic(api_key=config.api_key, base_url=config.base_url)
     log.debug("Anthropic client initialized")
     
     # Initialize components
