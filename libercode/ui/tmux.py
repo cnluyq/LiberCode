@@ -194,7 +194,7 @@ def create_balanced_pane(title_prefix: str = "Pane") -> str:
         _pane_counter += 1
         pane_num = _pane_counter
 
-    title = f"{title_prefix} {pane_num}"
+    title = f"pane {pane_num}:{title_prefix}"
 
     if not panes:
         # No panes found (shouldn't happen), create in current pane

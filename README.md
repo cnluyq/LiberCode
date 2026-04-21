@@ -89,7 +89,7 @@ export LIBERCODE_DEBUG=true  #set debug mode
 ### Quick Start
 
 ```bash
-# Run in tmux
+# Run in tmux(recommended strongly for better i/o display)
 tmux new-session -s LiberCode "libercode; echo 'press enter to exit...'; read"
 
 # Run command if no tmux
@@ -101,6 +101,11 @@ LiberCode - AI Agent for Teams
 Type 'q' or 'exit' to quit
 
 libercode >> 任务：使用C语言创建简单计算器。如果需要，可以分解成多个子任务，并创建多个队员来完成。
+```
+
+### Log File
+```bash
+.libercode/logs/libercode.log
 ```
 
 ### REPL Commands

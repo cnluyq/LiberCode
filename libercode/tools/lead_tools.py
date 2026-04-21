@@ -159,6 +159,15 @@ def get_lead_tools() -> list:
                 "required": ["teammate"],
             },
         },
+        {
+            "name": "drop_teammate",
+            "description": "Drop (remove) a teammate and clean up their data. Use this when a teammate has shut down by itself and needs cleanup.",
+            "input_schema": {
+                "type": "object",
+                "properties": {"name": {"type": "string"}},
+                "required": ["name"],
+            },
+        },
     ]
 
 
@@ -263,6 +272,9 @@ def create_lead_tool_handlers(
         # TODO: Implement plan approval response protocol
         return f"Plan approval response for {kwargs['teammate']} not yet implemented"
 
+    def handle_drop_teammate(**kwargs):
+        return teammate_manager.drop(kwargs["name"])
+
     return {
         "bash": handle_bash,
         "read_file": handle_read_file,
@@ -279,4 +291,5 @@ def create_lead_tool_handlers(
         "broadcast": handle_broadcast,
         "plan_approval_response": handle_plan_approval_response,
         "shutdown_request": handle_shutdown_request,
+        "drop_teammate": handle_drop_teammate,
     }

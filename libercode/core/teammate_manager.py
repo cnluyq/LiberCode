@@ -200,3 +200,30 @@ class TeammateManager:
             TeammateAgent instance or None if not found
         """
         return self._teammates.get(name)
+
+    def drop(self, name: str) -> str:
+        """
+        Drop (remove) a teammate and cleanup related data.
+
+        Args:
+            name: Teammate name
+
+        Returns:
+            Status message
+        """
+        member = self._find_member(name)
+        if not member:
+            return f"Error: '{name}' not found"
+
+        if name in self._teammates:
+            del self._teammates[name]
+
+        if name in self.threads:
+            del self.threads[name]
+
+        self._team_config["members"] = [
+            m for m in self._team_config.get("members", []) if m["name"] != name
+        ]
+        self._save_config()
+
+        return f"Dropped teammate '{name}'"

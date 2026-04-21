@@ -115,8 +115,8 @@ class TeammateAgent:
                         
                         # Log LLM call
                         log_llm_call(
-                            agent=self.name,
-                            model=self.config.model_id,
+                            agent=(f"teammate:{self.name}"),
+                            model=response.model,
                             input_tokens=response.usage.input_tokens,
                             output_tokens=response.usage.output_tokens,
                             duration_ms=duration_ms
@@ -227,6 +227,13 @@ class TeammateAgent:
                     # No work found, shutdown
                     log_agent_event(self.name, 'shutdown', {'reason': 'no_work'})
                     self._logger.info(f"Teammate {self.name} shutting down: no work found")
+                    tprint(f"Teammate {self.name} shutting down by self: no work found")
+                    msg = Message(
+                        type=MessageType.SHUTDOWN_BY_SELF,
+                        sender=self.name,
+                        content=f"Teammate {self.name} is shutting down because no work was found",
+                    )
+                    self.message_bus.send(msg, to="lead")
                     return
                     
         finally:

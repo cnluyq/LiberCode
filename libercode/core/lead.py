@@ -124,7 +124,7 @@ class LeadAgent:
                 # Log LLM call
                 log_llm_call(
                     agent='lead',
-                    model=self.config.model_id,
+                    model=response.model,
                     input_tokens=response.usage.input_tokens,
                     output_tokens=response.usage.output_tokens,
                     duration_ms=duration_ms
@@ -203,7 +203,9 @@ class LeadAgent:
     
     def _get_system_prompt(self) -> str:
         """Get system prompt for lead agent."""
-        return f"You are a team lead at {self.config.workdir}. When you get a task from user, firstly you should divide task to several sub tasks if need and meanwhile setup the dependence among subtasks. Base on sub tasks, spawn some teammates. The teammates are autonomous -- they find subtask themselves. Monitor all sub tasks and teammates. When need, send message to teammate."
+        return f"""You are a team lead at {self.config.workdir}. When you get a task from user, firstly you should divide task to several sub tasks if need and meanwhile setup the dependence among subtasks. Base on sub tasks, spawn some teammates. The teammates are autonomous -- they find subtask themselves. Monitor all sub tasks and teammates. When need, send message to teammate.
+
+IMPORTANT: When you receive a message in your inbox indicating that a teammate has shut down by itself (type: shutdown_by_self), you must call the teammate_manager's drop function to clean up that teammate's data. The drop function removes the teammate from the team configuration and releases resources."""
     
     def _get_tools(self) -> List[Dict]:
         """Get lead agent tools."""
