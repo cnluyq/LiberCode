@@ -13,7 +13,7 @@ import threading
 from libercode.config import Config
 from libercode.taskboard.manager import TaskManager
 from libercode.messaging.bus import MessageBus
-from libercode.messaging.protocol import MessageType
+from libercode.messaging.protocol import Message, MessageType
 from libercode.messaging.serialization import serialize_content
 from libercode.utils.token_tracker import TokenTracker
 from libercode.utils.logging import get_logger, log_task_event, log_agent_event, log_llm_call
