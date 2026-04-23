@@ -175,4 +175,5 @@ def format_llm_response(response, agent_name: str) -> None:
                 if '<think>' in text or '<thinking>' in text:
                     text = re.sub(r'<think(?:ing)?>', 'Thinking: ', text, flags=re.IGNORECASE)
                     text = re.sub(r'</think(?:ing)?>', '', text, flags=re.IGNORECASE)
-                tprint(text, color="cyan")
+                tprint()
+                tprint(text, color="cyan", style="bold")

@@ -19,7 +19,7 @@ class MessageType(str, Enum):
     SHUTDOWN_REQUEST = "shutdown_request"
     SHUTDOWN_RESPONSE = "shutdown_response"
     PLAN_APPROVAL_RESPONSE = "plan_approval_response"
-    PLAN_APPROVAL = "plan_approval"
+    PLAN_APPROVAL_REQUEST = "plan_approval_request"
     SHUTDOWN_BY_SELF = "shutdown_by_self"
 
 

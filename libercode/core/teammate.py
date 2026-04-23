@@ -47,6 +47,7 @@ class TeammateAgent:
     messages: List[Dict] = field(default_factory=list)
     pty_file: Optional[Any] = None
     _logger: Any = field(default=None, init=False)
+    _should_shutdown: bool = False
     
     def __post_init__(self):
         """Initialize logger after dataclass init."""
@@ -75,7 +76,9 @@ class TeammateAgent:
             # System prompt
             sys_prompt = (
                 f"You are '{self.name}', role: {self.role}, team: {team_name}, at {self.config.workdir}. "
-                f"Use idle tool when you have no more work."
+                f"Use idle tool when you have no more work. "
+                f"Submit plans via plan_approval_request before major and complex work. "
+                f"Respond to shutdown_request with shutdown_response."
             )
             
             # Initialize messages
@@ -92,9 +95,8 @@ class TeammateAgent:
                     inbox = self.message_bus.read_inbox(self.name)
                     for msg in inbox:
                         if msg.type == MessageType.SHUTDOWN_REQUEST:
-                            log_agent_event(self.name, 'shutdown', {'reason': 'shutdown_request'})
-                            self._logger.info(f"Teammate {self.name} received shutdown request")
-                            return
+                            self._logger.info(f"Teammate {self.name} received shutdown request during work")
+
                         self.messages.append({"role": "user", "content": json.dumps(msg.to_dict())})
                     
                     # Call LLM
@@ -124,7 +126,7 @@ class TeammateAgent:
                         
                     except Exception as e:
                         if hasattr(e, 'status_code'):
-                            if e.status_code == 500:
+                            if e.status_code == 500 or e.status_code == 502:
                                 self._logger.warning("LLM internal error, sleeping and retrying")
                                 if self.config.debug:
                                     tprint("LLM internal error, sleep and retry")
@@ -142,21 +144,30 @@ class TeammateAgent:
                     
                     # Update token stats
                     self.token_tracker.record(self.name, response, duration_ms)
-                    
+
+                    # 记录 response 到 logger.debug
+                    if hasattr(response, "model_dump"):
+                        response_dict = response.model_dump()
+                        self._logger.info(f"LLM response: {json.dumps(response_dict, indent=2, ensure_ascii=False)}")
+                    else:
+                        self._logger.info(f"LLM response (raw): {response}")
+
                     # Log response
                     if self.config.debug:
                         tprint(f"=== [teammate {self.name}] === {time.strftime('%Y-%m-%d %H:%M:%S')} round#{round_num} LLM response: ")
                         if hasattr(response, "model_dump"):
                             tprint(json.dumps(response.model_dump(), indent=2, ensure_ascii=False))
-                    else:
-                        format_llm_response(response,"teammate {self.name}")
 
                     self.messages.append({"role": "assistant", "content": response.content})
                     
                     # Check if done
                     if response.stop_reason != "tool_use":
                         break
-                    
+
+                    if not self.config.debug:
+                        format_llm_response(response,"team lead")
+                        tprint()
+
                     # Execute tools
                     results = []
                     idle_requested = False
@@ -168,22 +179,29 @@ class TeammateAgent:
                                 log_agent_event(self.name, 'idle', {'round': round_num})
                                 self._logger.debug("Entering idle phase")
                             else:
-                                if not self.config.debug:
-                                    tprint(f"{block.name}: \n{block.input}\n")
                                 output = self._execute_tool(block.name, block.input)
+
                             results.append({
                                 "type": "tool_result",
                                 "tool_use_id": block.id,
                                 "content": str(output),
                             })
 
+                            if self._should_shutdown:
+                                log_agent_event(self.name, 'shutdown', {'reason': 'approved'})
+                                self._logger.info(f"Teammate {self.name} shutting down immediately")
+                                tprint(f"Teammate {self.name} shutting down immediately")
+                                return
+
                             if self.config.debug:
                                 tprint("------------------------------------------------------------------------------------------------------------------------")
                                 tprint(f"=== [teammate {self.name}] === {time.strftime('%Y-%m-%d %H:%M:%S')} round#{round_num} \"{block.name}\" result: ")
                                 results_serialized = serialize_content(results)
-                                tprint(json.dumps(results_serialized, indent=2, ensure_ascii=False))
-                            else:
-                                tprint(f"{str(output)}")
+                                json_dumps_str=json.dumps(results_serialized, indent=2, ensure_ascii=False)
+                                tprint(json_dumps_str)
+                                self._logger.debug(f"Executing tool: {block.name}, result: {json_dumps_str}")
+                            #else:
+                            #    tprint(f"{str(output)}")
 
                     self.messages.append({"role": "user", "content": results})
                     
@@ -201,9 +219,8 @@ class TeammateAgent:
                     if inbox:
                         for msg in inbox:
                             if msg.type == MessageType.SHUTDOWN_REQUEST:
-                                log_agent_event(self.name, 'shutdown', {'reason': 'shutdown_request'})
                                 self._logger.info(f"Teammate {self.name} received shutdown request during idle")
-                                return
+
                             self.messages.append({"role": "user", "content": json.dumps(msg.to_dict())})
                             resume = True
                     
@@ -265,9 +282,12 @@ class TeammateAgent:
             task_manager=self.task_manager,
             message_bus=self.message_bus,
             sender_name=self.name,
+            teammate=self,
         )
 
-        self._logger.debug(f"Executing tool: {tool_name}")
+        args_substr = str(args)[:100] + ("..." if len(str(args)) > 100 else "")
+        tprint(f"Executing tool: {tool_name}, args: {args_substr}")
+        self._logger.info(f"Executing tool: {tool_name}, args: {args}")
         handler = handlers.get(tool_name)
         return handler(**args) if handler else f"Unknown tool: {tool_name}"
 

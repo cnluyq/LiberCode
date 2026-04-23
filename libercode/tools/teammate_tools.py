@@ -70,7 +70,7 @@ def get_teammate_tools() -> list:
                 "properties": {
                     "to": {"type": "string"},
                     "content": {"type": "string"},
-                    "msg_type": {"type": "string", "enum": ["message", "notification", "broadcast", "shutdown_response", "plan_approval"]},
+                    "msg_type": {"type": "string", "enum": ["message", "notification", "broadcast", "shutdown_response", "plan_approval_request"]},
                 },
                 "required": ["to", "content"],
             },
@@ -94,7 +94,7 @@ def get_teammate_tools() -> list:
             },
         },
         {
-            "name": "plan_approval",
+            "name": "plan_approval_request",
             "description": "Submit a plan for lead approval.",
             "input_schema": {
                 "type": "object",
@@ -123,6 +123,7 @@ def create_teammate_tool_handlers(
     task_manager: TaskManager,
     message_bus: MessageBus,
     sender_name: str,
+    teammate=None,
 ) -> Dict[str, Callable]:
     """
     Create Teammate agent tool handlers.
@@ -179,14 +180,17 @@ def create_teammate_tool_handlers(
                 "approve": kwargs["approve"],
             },
         )
-        return message_bus.send(msg, to="lead")
+        message_bus.send(msg, to="lead")
+        if kwargs.get("approve") and teammate:
+            teammate._should_shutdown = True
+        return "Shutdown response sent."
 
-    def handle_plan_approval(**kwargs):
+    def handle_plan_approval_request(**kwargs):
         import uuid
 
         request_id = str(uuid.uuid4())[:8]
         msg = Message(
-            type=MessageType.PLAN_APPROVAL,
+            type=MessageType.PLAN_APPROVAL_REQUEST,
             sender=sender_name,
             content=kwargs["plan"],
             extra={"request_id": request_id, "plan": kwargs["plan"]},
@@ -215,7 +219,7 @@ def create_teammate_tool_handlers(
         "send_message": handle_send_message,
         "read_inbox": handle_read_inbox,
         "shutdown_response": handle_shutdown_response,
-        "plan_approval": handle_plan_approval,
+        "plan_approval_request": handle_plan_approval_request,
         "idle": handle_idle,
         "claim_task": handle_claim_task,
     }

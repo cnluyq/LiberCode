@@ -152,11 +152,41 @@ def get_lead_tools() -> list:
         },
         {
             "name": "shutdown_request",
-            "description": "Request a teammate to shut down.",
+            "description": "Request a teammate to shut down. Returns request_id for tracking.",
             "input_schema": {
                 "type": "object",
                 "properties": {"teammate": {"type": "string"}},
                 "required": ["teammate"],
+            },
+        },
+        {
+            "name": "shutdown_status",
+            "description": "Check the status of a shutdown request by request_id.",
+            "input_schema": {
+                "type": "object",
+                "properties": {"request_id": {"type": "string"}},
+                "required": ["request_id"],
+            },
+        },
+        {
+            "name": "plan_approval_response",
+            "description": "Approve or reject a teammate's plan. Provide request_id + approve + optional feedback.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "request_id": {"type": "string"},
+                    "approve": {"type": "boolean"},
+                    "feedback": {"type": "string"},
+                },
+                "required": ["request_id", "approve"],
+            },
+        },
+        {
+            "name": "plan_list_pending",
+            "description": "List all pending plan approval requests.",
+            "input_schema": {
+                "type": "object",
+                "properties": {},
             },
         },
         {
@@ -171,10 +201,15 @@ def get_lead_tools() -> list:
     ]
 
 
+_shutdown_requests = {}
+_plan_requests = {}
+_tracker_lock = __import__('threading').Lock()
+
+
 def create_lead_tool_handlers(
     task_manager: TaskManager,
     message_bus: MessageBus,
-    teammate_manager,  # TeammateManager type
+    teammate_manager, # TeammateManager type
 ) -> Dict[str, Callable]:
     """
     Create Lead agent tool handlers.
@@ -193,8 +228,9 @@ def create_lead_tool_handlers(
         write_file,
         edit_file,
     )
-    from libercode.messaging.protocol import MessageType
+    from libercode.messaging.protocol import Message, MessageType
     import json
+    import uuid
 
     def handle_bash(**kwargs):
         return run_bash(kwargs["command"])
@@ -255,6 +291,22 @@ def create_lead_tool_handlers(
 
     def handle_read_inbox(**kwargs):
         messages = message_bus.read_inbox("lead")
+        for msg in messages:
+            if msg.type == MessageType.PLAN_APPROVAL_REQUEST:
+                req_id = msg.extra.get("request_id")
+                if req_id:
+                    with _tracker_lock:
+                        _plan_requests[req_id] = {
+                            "from": msg.sender,
+                            "plan": msg.content,
+                            "status": "pending"
+                        }
+            elif msg.type == MessageType.SHUTDOWN_RESPONSE:
+                req_id = msg.extra.get("request_id")
+                if req_id:
+                    with _tracker_lock:
+                        if req_id in _shutdown_requests:
+                            _shutdown_requests[req_id]["status"] = "approved" if msg.extra.get("approve") else "rejected"
         return json.dumps([m.to_dict() for m in messages], indent=2)
 
     def handle_broadcast(**kwargs):
@@ -265,12 +317,46 @@ def create_lead_tool_handlers(
         )
 
     def handle_shutdown_request(**kwargs):
-        # TODO: Implement shutdown protocol
-        return f"Shutdown request for {kwargs['teammate']} not yet implemented"
+        teammate = kwargs["teammate"]
+        req_id = str(uuid.uuid4())[:8]
+        with _tracker_lock:
+            _shutdown_requests[req_id] = {"target": teammate, "status": "pending"}
+        msg = Message(
+            type=MessageType.SHUTDOWN_REQUEST,
+            sender="lead",
+            content="Please shut down gracefully.",
+            extra={"request_id": req_id},
+        )
+        message_bus.send(msg, to=teammate)
+        return f"Shutdown request {req_id} sent to '{teammate}' (status: pending)"
 
     def handle_plan_approval_response(**kwargs):
-        # TODO: Implement plan approval response protocol
-        return f"Plan approval response for {kwargs['teammate']} not yet implemented"
+        request_id = kwargs["request_id"]
+        approve = kwargs["approve"]
+        feedback = kwargs.get("feedback", "")
+        with _tracker_lock:
+            req = _plan_requests.get(request_id)
+            if not req:
+                return f"Error: Unknown plan request_id '{request_id}'"
+            req["status"] = "approved" if approve else "rejected"
+        msg = Message(
+            type=MessageType.PLAN_APPROVAL_RESPONSE,
+            sender="lead",
+            content=feedback,
+            extra={"request_id": request_id, "approve": approve, "feedback": feedback},
+        )
+        message_bus.send(msg, to=req["from"])
+        return f"Plan {req['status']} for '{req['from']}'"
+
+    def handle_plan_list_pending(**kwargs):
+        with _tracker_lock:
+            pending = {k: v for k, v in _plan_requests.items() if v.get("status") == "pending"}
+            return json.dumps(pending, indent=2) if pending else "No pending plan requests"
+
+    def handle_shutdown_status(**kwargs):
+        request_id = kwargs.get("request_id", "")
+        with _tracker_lock:
+            return json.dumps(_shutdown_requests.get(request_id, {"error": "not found"}))
 
     def handle_drop_teammate(**kwargs):
         return teammate_manager.drop(kwargs["name"])
@@ -290,6 +376,8 @@ def create_lead_tool_handlers(
         "read_inbox": handle_read_inbox,
         "broadcast": handle_broadcast,
         "plan_approval_response": handle_plan_approval_response,
+        "plan_list_pending": handle_plan_list_pending,
         "shutdown_request": handle_shutdown_request,
+        "shutdown_status": handle_shutdown_status,
         "drop_teammate": handle_drop_teammate,
     }

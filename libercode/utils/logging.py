@@ -314,7 +314,7 @@ def log_agent_event(teammate: str, event: str, details: Dict[str, Any] = None) -
 def log_llm_call(agent: str, model: str, input_tokens: int, output_tokens: int, duration_ms: int) -> None:
     """Log an LLM API call."""
     logger = get_logger('libercode.llm', component='llm')
-    logger.debug(
+    logger.info(
         f"LLM call by {agent}: model={model}, "
         f"tokens={input_tokens}in/{output_tokens}out, "
         f"duration={duration_ms}ms"

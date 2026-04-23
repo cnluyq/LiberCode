@@ -65,7 +65,7 @@ class LeadAgent:
 
         # Log input
         self._logger.info(f"Processing user input (round#{self._input_counter})")
-        self._logger.debug(f"Input query: {query[:100]}...")
+        #self._logger.info(f"Input query: {query}")
 
         if self.config.debug:
             tprint("------------------------------------------------------------------------------------------------------------------------")
@@ -151,9 +151,16 @@ class LeadAgent:
             
             # Update token stats
             self.token_tracker.record("lead", response, duration_ms)
-           
+
+            # 记录 response 到 logger.debug
+            if hasattr(response, "model_dump"):
+                response_dict = response.model_dump()
+                self._logger.info(f"LLM response: {json.dumps(response_dict, indent=2, ensure_ascii=False)}")
+            else:
+                self._logger.info(f"LLM response (raw): {response}")
+
             if self.config.debug:
-                # Log response
+                # print response to screen
                 tprint(f"=== [teammate lead] === {time.strftime('%Y-%m-%d %H:%M:%S')} user_input#{self._input_counter} round#{self._agent_counter} LLM response: ")
                 if hasattr(response, "model_dump"):
                     tprint(json.dumps(response.model_dump(), indent=2, ensure_ascii=False))
@@ -174,11 +181,10 @@ class LeadAgent:
             results = []
             for block in response.content:
                 if block.type == "tool_use":
-                    self._logger.info(f"Executing tool: {block.name}")
+                    args_str = str(block.input)[:100] + ("..." if len(str(block.input)) > 100 else "")
+                    tprint(f"Executing tool: {block.name}, args: {args_str}")
+                    self._logger.info(f"Executing tool: {block.name}, args: {block.input}")
                     handler = self._get_tool_handler(block.name)
-                    if not self.config.debug:
-                        tprint(f"{block.name}: \n{block.input}\n", color="blue")
-
                     try:
                         output = handler(**block.input) if handler else f"Unknown tool: {block.name}"
                     except Exception as e:
@@ -195,18 +201,24 @@ class LeadAgent:
                         tprint("------------------------------------------------------------------------------------------------------------------------")
                         tprint(f"=== [teammate lead] === {time.strftime('%Y-%m-%d %H:%M:%S')} user_input#{self._input_counter} round#{self._agent_counter} user_run_tool \"{block.name}\" result: ")
                         results_serialized = serialize_content(results)
-                        tprint(json.dumps(results_serialized, indent=2, ensure_ascii=False))
-                    else:
-                        tprint(f"{str(output)}\n", color="yellow", style="italic")
+                        json_dumps_str=json.dumps(results_serialized, indent=2, ensure_ascii=False)
+                        tprint(json_dumps_str)
+                        self._logger.debug(f"Executing tool: {block.name}, result: {json_dumps_str}")
+                    # else:
+                        # tprint(f"{str(output)}\n", color="yellow", style="italic")
 
             self.messages.append({"role": "user", "content": results})
     
     def _get_system_prompt(self) -> str:
         """Get system prompt for lead agent."""
-        return f"""You are a team lead at {self.config.workdir}. When you get a task from user, firstly you should divide task to several sub tasks if need and meanwhile setup the dependence among subtasks. Base on sub tasks, spawn some teammates. The teammates are autonomous -- they find subtask themselves. Monitor all sub tasks and teammates. When need, send message to teammate.
+        lead_sys_prompt = (
+            f"You are a team lead at {self.config.workdir}. When you get a task from user, firstly you should divide task to several sub tasks if need and meanwhile setup the dependence among subtasks. Base on sub tasks, spawn some teammates. The teammates are autonomous -- they find subtask themselves. Monitor all sub tasks and teammates. When need, send message to teammate."
+            f"Submit shutdown request for any teammate via shutdown_request. When all tasks are completed successfully, shutdown all teammates if have."
+            f"When you receive a message in your inbox indicating that a teammate has shut down by itself (type: shutdown_by_self) or a message (type: shutdown_response) indicating a teammate has shut down, you must call the teammate_manager's drop function to clean up that teammate's data. The drop function removes the teammate from the team configuration and releases resources."
+            f"Respond to plan_approval_request with plan_approval_response. When you receive a message in your inbox indicating that a plan is requesed to be approved (type: plan_approval_request), you should check the plan content and use plan_approval_response tool to respond."
+            )
+        return lead_sys_prompt
 
-IMPORTANT: When you receive a message in your inbox indicating that a teammate has shut down by itself (type: shutdown_by_self), you must call the teammate_manager's drop function to clean up that teammate's data. The drop function removes the teammate from the team configuration and releases resources."""
-    
     def _get_tools(self) -> List[Dict]:
         """Get lead agent tools."""
         from libercode.tools.lead_tools import get_lead_tools

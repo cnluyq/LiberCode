@@ -36,7 +36,7 @@ def main():
     # Load configuration
     try:
         config = Config()
-        log.debug(f"Configuration loaded: workdir={config.workdir}")
+        log.info(f"Configuration loaded: workdir={config.workdir}")
     except Exception as e:
         log.error(f"Configuration error: {e}")
         tprint(f"Configuration error: {e}")
@@ -44,12 +44,12 @@ def main():
     
     # Initialize Anthropic client
     client = Anthropic(api_key=config.api_key, base_url=config.base_url)
-    log.debug("Anthropic client initialized")
+    log.info("Anthropic client initialized")
     
     # Initialize components
     message_bus = MessageBus(config.inbox_dir)
     task_manager = TaskManager(config.tasks_dir)
-    log.debug("MessageBus and TaskManager initialized")
+    log.info("MessageBus and TaskManager initialized")
     
     teammate_manager = TeammateManager(
         config=config,
@@ -200,7 +200,7 @@ def main():
 
 
         # Process user input
-        log.debug(f"Processing user input: {query[:50]}...")
+        log.info(f"Processing user input: {query}...")
         lead.process_user_input(query)
         
         # Print response
