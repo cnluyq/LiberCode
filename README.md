@@ -112,6 +112,44 @@ libercode >> 任务：使用C语言创建简单计算器。如果需要，可以
 
 ```
 libercode >> Create a Python script to analyze CSV files
+libercode >> /team # List all teammates
+libercode >> /tasks # Show task board
+libercode >> /inbox # Check lead's messages
+libercode >> /tokens # Show token usage stats
+libercode >> q # Quit
+```
+
+### Multi-line Input
+
+LiberCode supports multi-line user input with the following features:
+
+#### 1. Manual Multi-line Input
+
+Type `\` at the end of a line and press Enter to continue on the next line:
+
+```
+libercode >> Create a program that \
+            reads from a file \
+            and processes the data
+```
+
+Press Enter directly (without `\`) to submit.
+
+#### 2. Paste from Clipboard
+
+Copy multi-line text from clipboard and paste with Ctrl+V. The content will be inserted without auto-submit. Press Enter to submit.
+
+```
+libercode >> hello how are you?
+            what can you do for me?
+```
+
+#### 3. Cursor Navigation
+
+- **Left/Right Arrow Keys**: Move cursor within the input text
+- **Backspace**: Delete character before cursor
+- **Enter**: Submit input (or continue if line ends with `\`)
+libercode >> Create a Python script to analyze CSV files
 libercode >> /team          # List all teammates
 libercode >> /tasks         # Show task board
 libercode >> /inbox         # Check lead's messages

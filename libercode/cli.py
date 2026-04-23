@@ -15,6 +15,7 @@ from libercode.core.lead import LeadAgent
 from libercode.utils.logging import setup_logging, get_logger
 from libercode.utils.token_tracker import TokenTracker
 from libercode.ui.output import tprint
+from libercode.ui.input_handler import input_with_cursor_support
 
 
 def main():
@@ -77,7 +78,7 @@ def main():
     # REPL loop
     while True:
         try:
-            query = input("\033[36mlibercode >> \033[0m")
+            query = input_with_cursor_support("\033[36mlibercode >> \033[0m")
         except (EOFError, KeyboardInterrupt):
             tprint("\nGoodbye!")
             break
@@ -200,7 +201,7 @@ def main():
 
 
         # Process user input
-        log.info(f"Processing user input: {query}")
+        log.info(f"Processing user input: \n{query}")
         lead.process_user_input(query)
         
         # Print response
