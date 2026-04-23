@@ -6,7 +6,7 @@ Main orchestrator that manages tasks and teammates.
 import json
 import time
 import threading
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from dataclasses import dataclass, field
 from anthropic import Anthropic
 from pathlib import Path
@@ -45,17 +45,45 @@ class LeadAgent:
     _input_counter: int = field(default=0, init=False)
     _agent_counter: int = field(default=0, init=False)
     _logger: Any = field(default=None, init=False)
-    
+    _agents_md_injected: bool = field(default=False, init=False)
+
     def __post_init__(self):
         """Initialize logger after dataclass init."""
         self._logger = get_logger('libercode.lead', component='lead')
-    
+        self._agents_md_injected = False
+
+    def _load_agents_md(self) -> Optional[str]:
+        """Load AGENTS.md or CLAUDE.md from project root."""
+        search_paths = [
+            self.config.workdir / "AGENTS.md",
+            self.config.workdir / "CLAUDE.md",
+        ]
+        for path in search_paths:
+            if path.exists():
+                self._logger.info(f"Loading instructions from {path.name}")
+                return path.read_text(encoding="utf-8")
+        return None
+
+    def _inject_agents_md(self) -> None:
+        """Inject AGENTS.md content as initial user message if not already done."""
+        if self._agents_md_injected:
+            return
+        agents_md_content = self._load_agents_md()
+        if agents_md_content:
+            self.messages.append({
+                "role": "user",
+                "content": f"<project_instructions>\n{agents_md_content}\n</project_instructions>"
+            })
+            self._agents_md_injected = True
+            self._logger.info("Injected AGENTS.md/CLAUDE.md into conversation context")
+
     def process_user_input(self, query: str) -> None:
         """Process user input through LLM loop.
-        
+
         Args:
             query: User input string
         """
+        self._inject_agents_md()
         # Add to message history
         self.messages.append({"role": "user", "content": query})
         
@@ -212,7 +240,7 @@ class LeadAgent:
     def _get_system_prompt(self) -> str:
         """Get system prompt for lead agent."""
         lead_sys_prompt = (
-            f"You are a team lead at {self.config.workdir}. When you get a task from user, firstly you should divide task to several sub tasks if need and meanwhile setup the dependence among subtasks. Base on sub tasks, spawn some teammates. The teammates are autonomous -- they find subtask themselves. Monitor all sub tasks and teammates. When need, send message to teammate."
+            f"You are a team lead at {self.config.workdir}. When you get a task from user, firstly you should divide task to several sub tasks if need and meanwhile setup the dependence among subtasks. Base on sub tasks, spawn some teammates. The teammates are autonomous -- they find subtask themselves. Monitor all sub tasks and teammates, do not end_turn before all tasks are completed and all teammates are shutdown. You can use bash command sleep for some while to avoid frequent checks. When need, send message to teammate for communication."
             f"Submit shutdown request for any teammate via shutdown_request. When all tasks are completed successfully, shutdown all teammates if have."
             f"When you receive a message in your inbox indicating that a teammate has shut down by itself (type: shutdown_by_self) or a message (type: shutdown_response) indicating a teammate has shut down, you must call the teammate_manager's drop function to clean up that teammate's data. The drop function removes the teammate from the team configuration and releases resources."
             f"Respond to plan_approval_request with plan_approval_response. When you receive a message in your inbox indicating that a plan is requesed to be approved (type: plan_approval_request), you should check the plan content and use plan_approval_response tool to respond."

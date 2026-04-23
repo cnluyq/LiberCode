@@ -48,6 +48,32 @@ class TeammateAgent:
     pty_file: Optional[Any] = None
     _logger: Any = field(default=None, init=False)
     _should_shutdown: bool = False
+    _agents_md_injected: bool = False
+
+    def _load_agents_md(self) -> Optional[str]:
+        """Load AGENTS.md or CLAUDE.md from project root."""
+        search_paths = [
+            self.config.workdir / "AGENTS.md",
+            self.config.workdir / "CLAUDE.md",
+        ]
+        for path in search_paths:
+            if path.exists():
+                self._logger.info(f"Loading instructions from {path.name}")
+                return path.read_text(encoding="utf-8")
+        return None
+
+    def _inject_agents_md(self) -> None:
+        """Inject AGENTS.md content as initial user message if not already done."""
+        if self._agents_md_injected:
+            return
+        agents_md_content = self._load_agents_md()
+        if agents_md_content:
+            self.messages.append({
+                "role": "user",
+                "content": f"<project_instructions>\n{agents_md_content}\n</project_instructions>"
+            })
+            self._agents_md_injected = True
+            self._logger.info("Injected AGENTS.md/CLAUDE.md into teammate context")
     
     def __post_init__(self):
         """Initialize logger after dataclass init."""
@@ -78,12 +104,13 @@ class TeammateAgent:
                 f"You are '{self.name}', role: {self.role}, team: {team_name}, at {self.config.workdir}. "
                 f"Use idle tool when you have no more work. "
                 f"Submit plans via plan_approval_request before major and complex work. "
-                f"Respond to shutdown_request with shutdown_response."
+                f"Respond to shutdown_request with shutdown_response. When you receive the shutdown request from lead, use shutdown_response tool as soon as possible"
             )
             
+            self._inject_agents_md()
             # Initialize messages
             self.messages = [{"role": "user", "content": initial_prompt}]
-            
+
             # Main loop
             while True:
                 # -- WORK PHASE: standard agent loop --
