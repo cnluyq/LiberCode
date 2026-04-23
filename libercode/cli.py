@@ -200,7 +200,7 @@ def main():
 
 
         # Process user input
-        log.info(f"Processing user input: {query}...")
+        log.info(f"Processing user input: {query}")
         lead.process_user_input(query)
         
         # Print response
