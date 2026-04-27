@@ -28,7 +28,9 @@ class Task:
     blocked_by: List[int] = field(default_factory=list)
     blocks: List[int] = field(default_factory=list)
     owner: str = ""
-    worktree: str = ""  # Optional worktree binding
+    worktree: str = ""
+    required_role: str = ""
+    assigned_to: str = ""
 
     def to_dict(self) -> dict:
         """
@@ -43,10 +45,12 @@ class Task:
             "subject": self.subject,
             "description": self.description,
             "status": self.status.value,
-            "blockedBy": self.blocked_by,  # Legacy naming
+            "blockedBy": self.blocked_by,
             "blocks": self.blocks,
             "owner": self.owner,
             "worktree": self.worktree,
+            "required_role": self.required_role,
+            "assigned_to": self.assigned_to,
         }
 
     @classmethod
@@ -70,4 +74,6 @@ class Task:
             blocks=data.get("blocks", []),
             owner=data.get("owner", ""),
             worktree=data.get("worktree", ""),
+            required_role=data.get("required_role", ""),
+            assigned_to=data.get("assigned_to", ""),
         )

@@ -64,14 +64,16 @@ def get_lead_tools() -> list:
         },
         {
             "name": "task_create",
-            "description": "Create a new task.",
+            "description": "Create a new task. Must specify which role should handle it and who it is assigned to.",
             "input_schema": {
                 "type": "object",
                 "properties": {
                     "subject": {"type": "string"},
                     "description": {"type": "string"},
+                    "required_role": {"type": "string", "description": "Required teammate role (e.g. 'frontend', 'backend')"},
+                    "assigned_to": {"type": "string", "description": "Specific teammate name assigned to this task"},
                 },
-                "required": ["subject"],
+                "required": ["subject", "required_role", "assigned_to"],
             },
         },
         {
@@ -87,6 +89,8 @@ def get_lead_tools() -> list:
                     },
                     "addBlockedBy": {"type": "array", "items": {"type": "integer"}},
                     "addBlocks": {"type": "array", "items": {"type": "integer"}},
+                    "required_role": {"type": "string", "description": "Required teammate role (e.g. 'frontend', 'backend')"},
+                    "assigned_to": {"type": "string", "description": "Specific teammate name assigned to this task"},
                 },
                 "required": ["task_id"],
             },
@@ -245,7 +249,7 @@ def create_lead_tool_handlers(
         return edit_file(kwargs["path"], kwargs["old_text"], kwargs["new_text"])
 
     def handle_task_create(**kwargs):
-        task = task_manager.create(kwargs["subject"], kwargs.get("description", ""))
+        task = task_manager.create(kwargs["subject"], kwargs.get("description", ""), kwargs["required_role"], kwargs["assigned_to"])
         return json.dumps(task.to_dict(), indent=2)
 
     def handle_task_update(**kwargs):
@@ -260,6 +264,8 @@ def create_lead_tool_handlers(
             status=status,
             add_blocked_by=kwargs.get("addBlockedBy"),
             add_blocks=kwargs.get("addBlocks"),
+            required_role=kwargs.get("required_role"),
+            assigned_to=kwargs.get("assigned_to"),
         )
         return json.dumps(task.to_dict(), indent=2)
 

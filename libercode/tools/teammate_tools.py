@@ -202,14 +202,39 @@ def create_teammate_tool_handlers(
         return "Entering idle phase. Will poll for new tasks."
 
     def handle_claim_task(**kwargs):
-        # Simple claim - just update owner
-        # TODO: Add proper claim logic with status checks
+        import uuid
+
+        if not teammate:
+            return json.dumps({"error": "Teammate context not available"})
         try:
-            task = task_manager.get(kwargs["task_id"])
-            # For now, just return task info
-            return json.dumps(task.to_dict(), indent=2)
+            task_id = kwargs["task_id"]
+            task = task_manager.get(task_id)
+            task_data = task.to_dict()
+
+            if task_data.get("status") != "pending":
+                return json.dumps({"error": f"Task is not pending (status: {task_data.get('status')})"})
+
+            if task_data.get("owner"):
+                return json.dumps({"error": f"Task already claimed by {task_data.get('owner')}"})
+
+            if task_data.get("blockedBy"):
+                return json.dumps({"error": f"Task is blocked by {task_data.get('blockedBy')}"})
+
+            assigned_to = task_data.get("assigned_to")
+            if assigned_to and assigned_to != teammate.name:
+                return json.dumps({"error": f"Task is assigned to {assigned_to}"})
+
+            required_role = task_data.get("required_role", "")
+            if required_role and required_role != teammate.role:
+                return json.dumps({"error": f"Role mismatch. Task requires {required_role}, you are {teammate.role}"})
+
+            success = teammate._claim_task(task_data)
+            if success:
+                return json.dumps({"success": True, "message": f"Claimed task #{task_id}"})
+            else:
+                return json.dumps({"error": "Failed to claim task"})
         except Exception as e:
-            return f"Error: {e}"
+            return json.dumps({"error": str(e)})
 
     return {
         "bash": handle_bash,

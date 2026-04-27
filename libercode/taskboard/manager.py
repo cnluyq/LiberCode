@@ -64,13 +64,21 @@ class TaskManager:
         path = self.tasks_dir / f"task_{task.id}.json"
         path.write_text(json.dumps(task.to_dict(), indent=2))
 
-    def create(self, subject: str, description: str = "") -> Task:
+    def create(
+            self,
+            subject: str,
+            description: str = "",
+            required_role: str = "",
+            assigned_to: str = "",
+        ) -> Task:
         """
         Create a new task.
 
         Args:
             subject: Task title
             description: Optional detailed description
+            required_role: Required teammate role (e.g. 'frontend', 'backend')
+            assigned_to: Specific teammate name to assign
 
         Returns:
             Created task with auto-assigned ID
@@ -79,6 +87,8 @@ class TaskManager:
             id=self._next_id,
             subject=subject,
             description=description,
+            required_role=required_role,
+            assigned_to=assigned_to,
         )
         self._save(task)
         self._next_id += 1
@@ -107,6 +117,8 @@ class TaskManager:
         add_blocks: Optional[List[int]] = None,
         worktree: Optional[str] = None,
         owner: Optional[str] = None,
+        required_role: Optional[str] = None,
+        assigned_to: Optional[str] = None,
     ) -> Task:
         """
         Update task status, dependencies, or worktree binding.
@@ -118,6 +130,8 @@ class TaskManager:
             add_blocks: Task IDs that this task blocks
             worktree: Optional worktree name to bind
             owner: Optional owner name
+            required_role: Optional required teammate role
+            assigned_to: Optional specific teammate to assign
 
         Returns:
             Updated task
@@ -171,6 +185,12 @@ class TaskManager:
 
         if owner is not None:
             task.owner = owner
+
+        if required_role is not None:
+            task.required_role = required_role
+
+        if assigned_to is not None:
+            task.assigned_to = assigned_to
 
         self._save(task)
         return task

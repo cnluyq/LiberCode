@@ -103,8 +103,8 @@ class TeammateAgent:
             sys_prompt = (
                 f"You are '{self.name}', role: {self.role}, team: {team_name}, at {self.config.workdir}. "
                 f"Use idle tool when you have no more work. "
-                f"Submit plans via plan_approval_request before major and complex work. "
-                f"Respond to shutdown_request with shutdown_response. When you receive the shutdown request from lead, use shutdown_response tool as soon as possible"
+                f"Submit plans via plan_approval_request before major and complex work. Check the plan approval status by checking inbox message from lead. You can use bash command sleep for some while to avoid frequent checks. When you get lead's approval, you go to execute the plan. If the work is simple, just do it and do not need to submit plan "
+                f"Respond to shutdown_request with shutdown_response. When you receive the shutdown request from lead (type: shutdown_request), use shutdown_response tool to respond as soon as possible"
             )
             
             self._inject_agents_md()
@@ -345,22 +345,32 @@ class TeammateAgent:
         return None
     
     def _scan_unclaimed_tasks(self) -> List[Dict]:
-        """Scan for unclaimed tasks."""
+        """Scan for unclaimed tasks matching teammate's role."""
         from libercode.taskboard.models import TaskStatus
-        
+
         all_tasks = []
         for f in sorted(self.task_manager.tasks_dir.glob("task_*.json")):
             task_data = json.loads(f.read_text())
-            if (
+            if not (
                 task_data.get("status") == "pending"
                 and not task_data.get("owner")
                 and not task_data.get("blockedBy")
             ):
-                all_tasks.append(task_data)
-        
+                continue
+
+            assigned_to = task_data.get("assigned_to")
+            if assigned_to and assigned_to != self.name:
+                continue
+
+            required_role = task_data.get("required_role", "")
+            if required_role and required_role != self.role:
+                continue
+
+            all_tasks.append(task_data)
+
         if all_tasks:
-            self._logger.debug(f"Found {len(all_tasks)} unclaimed tasks")
-        
+            self._logger.debug(f"Found {len(all_tasks)} unclaimed tasks matching role {self.role}")
+
         return all_tasks
     
     def _claim_task(self, task: Dict) -> bool:
