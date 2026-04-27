@@ -167,6 +167,12 @@ class TeammateAgent:
                                 continue
                         self._logger.error(f"Exception during LLM call: {e}")
                         tprint(f"Exception happened: {e}")
+                        msg = Message(
+                            type=MessageType.SHUTDOWN_BY_SELF,
+                            sender=self.name,
+                            content=f"Teammate {self.name} is shutting down because of a fatal internel error",
+                        )
+                        self.message_bus.send(msg, to="lead")
                         return
                     
                     # Update token stats
