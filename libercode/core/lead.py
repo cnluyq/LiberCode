@@ -137,7 +137,7 @@ class LeadAgent:
             if self.config.debug:
                 tprint("------------------------------------------------------------------------------------------------------------------------")
                 tprint(f"=== [teammate lead] === {time.strftime('%Y-%m-%d %H:%M:%S')} user_input#{self._input_counter} round#{self._agent_counter} calling LLM ......")
-            
+            tprint(f"lead system prompt: {self._get_system_prompt()}") 
             start_time = time.time()
             try:
                 response = self.client.messages.create(
@@ -239,14 +239,9 @@ class LeadAgent:
     
     def _get_system_prompt(self) -> str:
         """Get system prompt for lead agent."""
-        lead_sys_prompt = (
-            f"You are a team lead at {self.config.workdir}. When you get a task from user, firstly you should analyze if it is a complex task. if it is a complex task, you should divide it to several sub tasks and determine how many teammates are needed and the roles of each teammate, then setup the dependence among subtasks and assign each subtask to the appropriate teammate with proper role. The teammates can understand your assignments and they are able to find subtask from taskboard by themselves as well when they are in idle. Monitor all sub tasks and teammates, do not end_turn before all tasks are completed and all teammates are shutdown. You can use bash command sleep for some while to avoid frequent checks. When need, send message to teammate for communication."
-            f"When creating tasks, you MUST set 'required_role' field to specify which teammate role should handle it (e.g., 'frontend', 'backend'), and 'assigned_to' field to indicate which specific teammate is assigned."
-            f"Submit shutdown request for any teammate via shutdown_request. When all tasks are completed successfully, shutdown all teammates if have."
-            f"When you receive a message in your inbox indicating that a teammate has shut down by itself (type: shutdown_by_self) or a message (type: shutdown_response) indicating a teammate has shut down, you must call the teammate_manager's drop function to clean up that teammate's data. The drop function removes the teammate from the team configuration and releases resources."
-            f"Respond to plan_approval_request with plan_approval_response. When you receive a message(type: plan_approval_request) in your inbox indicating that a plan is requesed to be approved, you should check the plan content and use plan_approval_response tool to respond as soon as possible"
-            )
-        return lead_sys_prompt
+        prompt_path = Path(__file__).parent.parent / "prompts" / "lead_system.txt"
+        lead_sys_prompt = prompt_path.read_text(encoding="utf-8")
+        return lead_sys_prompt.format(workdir=self.config.workdir)
 
     def _get_tools(self) -> List[Dict]:
         """Get lead agent tools."""

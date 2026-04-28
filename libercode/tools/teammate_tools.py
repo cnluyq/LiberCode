@@ -13,7 +13,7 @@ def get_teammate_tools() -> list:
     Get Teammate agent tool definitions.
 
     Returns:
-        List of 11 tool definitions in Anthropic format
+        List of 13 tool definitions in Anthropic format
     """
     return [
         {
@@ -110,6 +110,20 @@ def get_teammate_tools() -> list:
         {
             "name": "claim_task",
             "description": "Claim a task from the task board by ID.",
+            "input_schema": {
+                "type": "object",
+                "properties": {"task_id": {"type": "integer"}},
+                "required": ["task_id"],
+            },
+        },
+        {
+            "name": "task_list",
+            "description": "List all tasks with status summary.",
+            "input_schema": {"type": "object", "properties": {}},
+        },
+        {
+            "name": "task_get",
+            "description": "Get full details of a task by ID.",
             "input_schema": {
                 "type": "object",
                 "properties": {"task_id": {"type": "integer"}},
@@ -236,6 +250,13 @@ def create_teammate_tool_handlers(
         except Exception as e:
             return json.dumps({"error": str(e)})
 
+    def handle_task_list(**kwargs):
+        return task_manager.list_all()
+
+    def handle_task_get(**kwargs):
+        task = task_manager.get(kwargs["task_id"])
+        return json.dumps(task.to_dict(), indent=2)
+
     return {
         "bash": handle_bash,
         "read_file": handle_read_file,
@@ -247,4 +268,6 @@ def create_teammate_tool_handlers(
         "plan_approval_request": handle_plan_approval_request,
         "idle": handle_idle,
         "claim_task": handle_claim_task,
+        "task_list": handle_task_list,
+        "task_get": handle_task_get,
     }

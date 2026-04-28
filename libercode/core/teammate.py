@@ -18,6 +18,9 @@ from libercode.messaging.serialization import serialize_content
 from libercode.utils.token_tracker import TokenTracker
 from libercode.utils.logging import get_logger, log_task_event, log_agent_event, log_llm_call
 from libercode.ui.output import tprint, format_llm_response
+
+from pathlib import Path
+
 from libercode.exceptions import TaskClaimError
 
 
@@ -100,13 +103,15 @@ class TeammateAgent:
                 tprint(f"Teammate {self.name} thread started, pty_file={self.pty_file}")
             
             # System prompt
-            sys_prompt = (
-                f"You are '{self.name}', role: {self.role}, team: {team_name}, at {self.config.workdir}. "
-                f"Use idle tool when you have no more work. "
-                f"Submit plans via plan_approval_request before major and complex work. Check the plan approval status by checking inbox message from lead. You can use bash command sleep for some while to avoid frequent checks. When you get lead's approval, you go to execute the plan. If the work is simple, just do it and do not need to submit plan "
-                f"Respond to shutdown_request with shutdown_response. When you receive the shutdown request from lead (type: shutdown_request), use shutdown_response tool to respond as soon as possible"
+            prompt_path = Path(__file__).parent.parent / "prompts" / "teammate_system.txt"
+            sys_prompt = prompt_path.read_text(encoding="utf-8")
+            sys_prompt = sys_prompt.format(
+                name=self.name,
+                role=self.role,
+                team_name=team_name,
+                workdir=self.config.workdir
             )
-            
+            tprint(f"teammate system prompt: {sys_prompt}")  
             self._inject_agents_md()
             # Initialize messages
             self.messages = [{"role": "user", "content": initial_prompt}]
