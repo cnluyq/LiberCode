@@ -227,8 +227,8 @@ class TeammateAgent:
 
                             if self._should_shutdown:
                                 log_agent_event(self.name, 'shutdown', {'reason': 'approved'})
-                                self._logger.info(f"Teammate {self.name} shutting down immediately")
-                                tprint(f"Teammate {self.name} shutting down immediately")
+                                self._logger.info(f"Teammate {self.name} shut down completely and quitted")
+                                tprint(f"Teammate {self.name} shut down completely and quitted")
                                 return
 
                             if self.config.debug:
