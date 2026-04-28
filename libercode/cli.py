@@ -148,7 +148,7 @@ def main():
                     if isinstance(last_message.get("content"), list):
                         for block in last_message["content"]:
                             if hasattr(block, "text"):
-                                tprint(block.text)
+                                tprint(block.text, color="cyan", style="bold")
                 tprint()
                 continue
 
@@ -162,7 +162,7 @@ def main():
                     if isinstance(last_message.get("content"), list):
                         for block in last_message["content"]:
                             if hasattr(block, "text"):
-                                tprint(block.text)
+                                tprint(block.text, color="cyan", style="bold")
                 tprint()
                 continue
 
@@ -210,7 +210,7 @@ def main():
             if isinstance(last_message.get("content"), list):
                 for block in last_message["content"]:
                     if hasattr(block, "text"):
-                        tprint(block.text, color="blue", style="bold")
+                        tprint(block.text, color="cyan", style="bold")
         tprint()
     
     log.info("LiberCode CLI shutting down")
