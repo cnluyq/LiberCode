@@ -137,7 +137,7 @@ class LeadAgent:
             if self.config.debug:
                 tprint("------------------------------------------------------------------------------------------------------------------------")
                 tprint(f"=== [teammate lead] === {time.strftime('%Y-%m-%d %H:%M:%S')} user_input#{self._input_counter} round#{self._agent_counter} calling LLM ......")
-            tprint(f"lead system prompt: {self._get_system_prompt()}") 
+
             start_time = time.time()
             try:
                 response = self.client.messages.create(

@@ -111,7 +111,7 @@ class TeammateAgent:
                 team_name=team_name,
                 workdir=self.config.workdir
             )
-            tprint(f"teammate system prompt: {sys_prompt}")  
+
             self._inject_agents_md()
             # Initialize messages
             self.messages = [{"role": "user", "content": initial_prompt}]
