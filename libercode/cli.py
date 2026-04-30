@@ -264,7 +264,9 @@ async def run_llm_with_interrupt(lead, query, log):
         if isinstance(last_message.get("content"), list):
             for block in last_message["content"]:
                 if hasattr(block, "text"):
-                    tprint(block.text, color="cyan", style="bold")
+                    text = block.text.strip()
+                    if text:
+                        tprint(text, color="cyan", style="bold")
 
 
 if __name__ == "__main__":
