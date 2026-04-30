@@ -99,8 +99,6 @@ class TeammateAgent:
         try:
             log_agent_event(self.name, 'started', {'role': self.role})
             self._logger.info(f"Teammate {self.name} thread started, pty_file={self.pty_file}")
-            if self.config.debug:
-                tprint(f"Teammate {self.name} thread started, pty_file={self.pty_file}")
             
             # System prompt
             prompt_path = Path(__file__).parent.parent / "prompts" / "teammate_system.txt"
@@ -132,10 +130,7 @@ class TeammateAgent:
                         self.messages.append({"role": "user", "content": json.dumps(msg.to_dict())})
                     
                     # Call LLM
-                    if self.config.debug:
-                        tprint("------------------------------------------------------------------------------------------------------------------------")
-                        tprint(f"=== [teammate {self.name}] === {time.strftime('%Y-%m-%d %H:%M:%S')} round#{round_num} calling LLM ......")
-                    
+                    self._logger.info(f"round#{round_num} calling LLM ......")
                     start_time = time.time()
                     try:
                         response = self.client.messages.create(
@@ -160,14 +155,10 @@ class TeammateAgent:
                         if hasattr(e, 'status_code'):
                             if e.status_code == 500 or e.status_code == 502:
                                 self._logger.warning("LLM internal error, sleeping and retrying")
-                                if self.config.debug:
-                                    tprint("LLM internal error, sleep and retry")
                                 time.sleep(30)
                                 continue
                             elif e.status_code == 429:
                                 self._logger.warning("Rate limit exceeded, sleeping and retrying")
-                                if self.config.debug:
-                                    tprint("RateLimitError, sleep and retry")
                                 time.sleep(30)
                                 continue
                         self._logger.error(f"Exception during LLM call: {e}")
@@ -190,21 +181,13 @@ class TeammateAgent:
                     else:
                         self._logger.info(f"LLM response (raw): {response}")
 
-                    # Log response
-                    if self.config.debug:
-                        tprint(f"=== [teammate {self.name}] === {time.strftime('%Y-%m-%d %H:%M:%S')} round#{round_num} LLM response: ")
-                        if hasattr(response, "model_dump"):
-                            tprint(json.dumps(response.model_dump(), indent=2, ensure_ascii=False))
-
                     self.messages.append({"role": "assistant", "content": response.content})
                     
                     # Check if done
                     if response.stop_reason != "tool_use":
                         break
 
-                    if not self.config.debug:
-                        format_llm_response(response,"team lead")
-                        tprint()
+                    format_llm_response(response, self.name)
 
                     # Execute tools
                     results = []
@@ -219,6 +202,7 @@ class TeammateAgent:
                             else:
                                 output = self._execute_tool(block.name, block.input)
 
+                            self._logger.info(f"Executing tool '{block.name}' result: {str(output)}")
                             results.append({
                                 "type": "tool_result",
                                 "tool_use_id": block.id,
@@ -230,16 +214,6 @@ class TeammateAgent:
                                 self._logger.info(f"Teammate {self.name} shut down completely and quitted")
                                 tprint(f"Teammate {self.name} shut down completely and quitted")
                                 return
-
-                            if self.config.debug:
-                                tprint("------------------------------------------------------------------------------------------------------------------------")
-                                tprint(f"=== [teammate {self.name}] === {time.strftime('%Y-%m-%d %H:%M:%S')} round#{round_num} \"{block.name}\" result: ")
-                                results_serialized = serialize_content(results)
-                                json_dumps_str=json.dumps(results_serialized, indent=2, ensure_ascii=False)
-                                tprint(json_dumps_str)
-                                self._logger.debug(f"Executing tool: {block.name}, result: {json_dumps_str}")
-                            #else:
-                            #    tprint(f"{str(output)}")
 
                     self.messages.append({"role": "user", "content": results})
                     
@@ -407,10 +381,6 @@ class TeammateAgent:
         current_task["status"] = "in_progress"
         task_file.write_text(json.dumps(current_task, indent=2))
         
-        # Log task claim
-        log_task_event(task_id, 'claimed', {'teammate': self.name})
-        self._logger.info(f"Claimed task #{task_id}: {task.get('subject', '')}")
-        
         # Create task prompt
         task_prompt = (
             f"<auto-claimed>Task #{task['id']}: {task['subject']}\n"
@@ -418,9 +388,9 @@ class TeammateAgent:
             f"When the task complete, send message to 'lead' with task-id and status to notify lead to update task status. Then use idle tool to back to idle state</auto-claimed>"
         )
 
-        if self.config.debug: 
-            tprint("------------------------------------------------------------------------------------------------------------------------")
-            tprint(f"=== [teammate {self.name}] === {time.strftime('%Y-%m-%d %H:%M:%S')} claimed task: {task_prompt} ")
+        # Log task claim
+        log_task_event(task_id, 'claimed', {'teammate': self.name})
+        self._logger.info(f"Claimed task: {task_prompt}")
 
         # Add to messages
         if len(self.messages) <= 3:

@@ -4,9 +4,11 @@ Features:
 1. Manual multi-line input: type a special char (e.g., \) at end of line to continue
 2. Paste handling: Ctrl+V pastes content without auto-submit, press Enter to submit
 3. Cursor navigation: < and > keys move within input, Backspace deletes char
+4. ESC interrupt: double-tap ESC to cancel current LLM operation
 """
 
 import sys
+import time
 from typing import Optional, Callable
 from prompt_toolkit import Application
 from prompt_toolkit.buffer import Buffer
@@ -129,8 +131,6 @@ class SimpleMultiLineInput:
                 lines.append(line[:-1])
             else:
                 lines.append(line)
-                break
-        
         return "\n".join(lines)
 
 

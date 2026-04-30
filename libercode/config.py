@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 from dataclasses import dataclass
 from dotenv import load_dotenv
+from anthropic import AsyncAnthropic
 
 from libercode.exceptions import ConfigurationError
 
@@ -66,6 +67,9 @@ class Config:
         # Handle base_url side effect from original code
         if self.base_url:
             os.environ.pop("ANTHROPIC_AUTH_TOKEN", None)
+
+        # Initialize async client for interruptible LLM calls
+        self.async_client = AsyncAnthropic(api_key=self.api_key, base_url=self.base_url)
 
     def _get_required(self, key: str) -> str:
         """Get required environment variable or raise ConfigurationError"""
