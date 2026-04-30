@@ -2,7 +2,7 @@
 
 Provides REPL interface for user interaction.
 """
-
+import subprocess
 import asyncio
 import json
 import time
@@ -147,74 +147,96 @@ async def async_repl_loop(lead, message_bus, task_manager, teammate_manager, log
                     tprint(" q, exit - Exit the application")
                     continue
 
-                if query.strip() == "/team":
-                    log.debug("Listing team members")
-                    tprint(teammate_manager.list_all())
+            if query.strip() == "/team":
+                log.debug("Listing team members")
+                tprint(teammate_manager.list_all())
+                continue
+
+            if query.strip() == "/inbox":
+                log.debug("Checking inbox")
+                messages = message_bus.read_inbox("lead")
+                if not messages:
+                    tprint("No messages in inbox.")
+                else:
+                    for msg in messages:
+                        tprint(f"From {msg.sender}: {msg.content}")
+                continue
+
+            if query.strip().startswith("/tokens"):
+                log.debug("Token tracking requested")
+                parts = query.strip().split()
+                args = parts[1:] if len(parts) > 1 else []
+                tracker = TokenTracker.get_tracker()
+                tprint(tracker.output(args))
+                continue
+
+            if query.strip() == "/tasks":
+                log.debug("Listing tasks")
+                tprint(task_manager.list_all())
+                continue
+
+            if query.strip() == "/init":
+                log.debug("Running /init command to create/update AGENTS.md")
+                prompt_path = Path(__file__).parent / "prompts" / "init_agents_md.txt"
+                init_prompt = prompt_path.read_text()
+                await run_llm_with_interrupt(lead, init_prompt, log)
+                continue
+
+            if query.strip() == "/review":
+                log.debug("Running /review command to review the project")
+                prompt_path = Path(__file__).parent / "prompts" / "review.txt"
+                init_prompt = prompt_path.read_text()
+                await run_llm_with_interrupt(lead, init_prompt, log)
+                continue
+
+            if query.strip().startswith("!"):
+                cmd = query[1:].strip()
+                if not cmd:
+                    tprint("! no command input")
                     continue
+                try:
+                    result = subprocess.run(
+                        cmd,
+                        shell=True,
+                        capture_output=True,
+                        text=True,
+                        timeout=60
+                    )
+                    if result.stdout:
+                        tprint(result.stdout.rstrip())
+                    if result.stderr:
+                        tprint(f"[stderr]\n{result.stderr.rstrip()}")
+                    if result.returncode != 0:
+                        tprint(f"command return code: {result.returncode}")
+                except subprocess.TimeoutExpired:
+                    tprint("command timeout")
+                except Exception as e:
+                    tprint(f"command error: {e}")
+                continue 
 
-                if query.strip() == "/inbox":
-                    log.debug("Checking inbox")
-                    messages = message_bus.read_inbox("lead")
-                    if not messages:
-                        tprint("No messages in inbox.")
-                    else:
-                        for msg in messages:
-                            tprint(f"From {msg.sender}: {msg.content}")
-                    continue
+            if query.strip().startswith("/clear"):
+                log.debug("Clearing message history")
+                parts = query.strip().split()
+                args = parts[1:] if len(parts) > 1 else []
 
-                if query.strip().startswith("/tokens"):
-                    log.debug("Token tracking requested")
-                    parts = query.strip().split()
-                    args = parts[1:] if len(parts) > 1 else []
-                    tracker = TokenTracker.get_tracker()
-                    tprint(tracker.output(args))
-                    continue
-
-                if query.strip() == "/tasks":
-                    log.debug("Listing tasks")
-                    tprint(task_manager.list_all())
-                    continue
-
-                if query.strip() == "/init":
-                    log.debug("Running /init command to create/update AGENTS.md")
-                    prompt_path = Path(__file__).parent / "prompts" / "init_agents_md.txt"
-                    init_prompt = prompt_path.read_text()
-                    await run_llm_with_interrupt(lead, init_prompt, log)
-                    continue
-
-                if query.strip() == "/review":
-                    log.debug("Running /review command to review the project")
-                    prompt_path = Path(__file__).parent / "prompts" / "review.txt"
-                    init_prompt = prompt_path.read_text()
-                    await run_llm_with_interrupt(lead, init_prompt, log)
-                    continue
-
-                if query.strip().startswith("/clear"):
-                    log.debug("Clearing message history")
-                    parts = query.strip().split()
-                    args = parts[1:] if len(parts) > 1 else []
-
-                    if not args:
-                        lead.clear_messages()
-                        tprint("Lead message history cleared.")
-                    elif args[0] == "all":
-                        lead.clear_messages()
-                        for name in teammate_manager.member_names():
-                            teammate = teammate_manager.get_teammate(name)
-                            if teammate:
-                                teammate.clear_messages()
-                        tprint("All message histories cleared (lead and all teammates).")
-                    else:
-                        teammate_name = args[0]
-                        teammate = teammate_manager.get_teammate(teammate_name)
+                if not args:
+                    lead.clear_messages()
+                    tprint("Lead message history cleared.")
+                elif args[0] == "all":
+                    lead.clear_messages()
+                    for name in teammate_manager.member_names():
+                        teammate = teammate_manager.get_teammate(name)
                         if teammate:
                             teammate.clear_messages()
-                            tprint(f"Teammate '{teammate_name}' message history cleared.")
-                        else:
-                            tprint(f"Error: Teammate '{teammate_name}' not found.")
-                    continue
-
-                tprint("Error: No matching command")
+                    tprint("All message histories cleared (lead and all teammates).")
+                else:
+                    teammate_name = args[0]
+                    teammate = teammate_manager.get_teammate(teammate_name)
+                    if teammate:
+                        teammate.clear_messages()
+                        tprint(f"Teammate '{teammate_name}' message history cleared.")
+                    else:
+                        tprint(f"Error: Teammate '{teammate_name}' not found.")
                 continue
 
             log.info(f"Processing user input: \n{query}")
