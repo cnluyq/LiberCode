@@ -261,14 +261,10 @@ async def run_llm_with_interrupt(lead, query, log):
 
     if lead.messages:
         last_message = lead.messages[-1]
-        if last_message.get("role") == "assistant":
-            content = last_message.get("content")
-            if isinstance(content, list):
-                for block in content:
-                    if block.get("text"):
-                        tprint(block["text"], color="cyan", style="bold")
-            elif isinstance(content, str):
-                tprint(content, color="cyan", style="bold")
+        if isinstance(last_message.get("content"), list):
+            for block in last_message["content"]:
+                if hasattr(block, "text"):
+                    tprint(block.text, color="cyan", style="bold")
 
 
 if __name__ == "__main__":
