@@ -97,7 +97,6 @@ class LeadAgent:
         self._logger.info(f"Processing user input (round#{self._input_counter})")
 
         if self.config.debug:
-            tprint("------------------------------------------------------------------------------------------------------------------------")
             tprint(f"<<<<<< [teammate lead] history input (round#{self._input_counter}) {time.strftime('%Y-%m-%d %H:%M:%S')} >>>>>>")
             history_serialized = serialize_content(self.messages)
             tprint(json.dumps(history_serialized, indent=2, ensure_ascii=False))
@@ -105,11 +104,9 @@ class LeadAgent:
         self._run_llm_loop()
 
         if self.config.debug:
-            tprint("------------------------------------------------------------------------------------------------------------------------")
             tprint(f"<<<<<< [teammate lead] history output (round#{self._input_counter}) {time.strftime('%Y-%m-%d %H:%M:%S')} >>>>>>")
             history_serialized = serialize_content(self.messages)
             tprint(json.dumps(history_serialized, indent=2, ensure_ascii=False))
-            tprint("------------------------------------------------------------------------------------------------------------------------")
 
         self._logger.info(f"Completed processing round#{self._input_counter}")
 
@@ -131,10 +128,7 @@ class LeadAgent:
                     "content": "Noted inbox messages.",
                 })
 
-            if self.config.debug:
-                tprint("------------------------------------------------------------------------------------------------------------------------")
-                tprint(f"=== [teammate lead] === {time.strftime('%Y-%m-%d %H:%M:%S')} user_input#{self._input_counter} round#{self._agent_counter} calling LLM ......")
-
+            self._logger.info(f"user_input#{self._input_counter} round#{self._agent_counter} calling LLM ......")
             start_time = time.time()
             try:
                 response = self.client.messages.create(
@@ -158,18 +152,14 @@ class LeadAgent:
                 if hasattr(e, 'status_code'):
                     if e.status_code == 500 or e.status_code == 502:
                         self._logger.warning("LLM internal error, sleeping and retrying")
-                        if self.config.debug:
-                            tprint("LLM internal error, sleep and retry")
                         time.sleep(30)
                         continue
                     elif e.status_code == 429:
                         self._logger.warning("Rate limit exceeded, sleeping and retrying")
-                        if self.config.debug:
-                            tprint("RateLimitError, sleep and retry")
                         time.sleep(30)
                         continue
                 self._logger.error(f"Exception during LLM call: {e}")
-                tprint(f"Exception happened: {e}")
+                tprint(f"Fatal exception happened during LLM call and return")
                 return
 
             self.token_tracker.record("lead", response, duration_ms)
@@ -180,45 +170,33 @@ class LeadAgent:
             else:
                 self._logger.info(f"LLM response (raw): \n{response}")
 
-            if self.config.debug:
-                tprint(f"=== [teammate lead] === {time.strftime('%Y-%m-%d %H:%M:%S')} user_input#{self._input_counter} round#{self._agent_counter} LLM response: ")
-                if hasattr(response, "model_dump"):
-                    tprint(json.dumps(response.model_dump(), indent=2, ensure_ascii=False))
-
             self.messages.append({"role": "assistant", "content": response.content})
 
             if response.stop_reason != "tool_use":
                 self._logger.debug("LLM loop completed without tool use")
                 return
 
-            if not self.config.debug:
-                format_llm_response(response,"team lead")
+            format_llm_response(response,"team lead")
 
             results = []
             for block in response.content:
                 if block.type == "tool_use":
                     args_str = str(block.input)[:100] + ("..." if len(str(block.input)) > 100 else "")
                     tprint(f"Executing tool: {block.name}, args: {args_str}")
-                    self._logger.info(f"Executing tool: {block.name}, args: {block.input}")
+                    self._logger.info(f"Executing tool: {block.name}, args:\n{block.input}")
                     handler = self._get_tool_handler(block.name)
                     try:
                         output = handler(**block.input) if handler else f"Unknown tool: {block.name}"
                     except Exception as e:
                         self._logger.error(f"Tool {block.name} failed: {e}")
                         output = f"Error: {e}"
+
+                    self._logger.info(f"Executing tool: {block.name}, result:\n{str(output)}")
                     results.append({
                         "type": "tool_result",
                         "tool_use_id": block.id,
                         "content": str(output),
                     })
-
-                    if self.config.debug:
-                        tprint("------------------------------------------------------------------------------------------------------------------------")
-                        tprint(f"=== [teammate lead] === {time.strftime('%Y-%m-%d %H:%M:%S')} user_input#{self._input_counter} round#{self._agent_counter} user_run_tool \"{block.name}\" result: ")
-                        results_serialized = serialize_content(results)
-                        json_dumps_str=json.dumps(results_serialized, indent=2, ensure_ascii=False)
-                        tprint(json_dumps_str)
-                        self._logger.debug(f"Executing tool: {block.name}, result: {json_dumps_str}")
 
             self.messages.append({"role": "user", "content": results})
 
@@ -310,7 +288,7 @@ class LeadAgent:
                 if block.type == "tool_use":
                     args_str = str(block.input)[:100] + ("..." if len(str(block.input)) > 100 else "")
                     tprint(f"Executing tool: {block.name}, args: {args_str}")
-                    self._logger.info(f"Executing tool: {block.name}, args: {block.input}")
+                    self._logger.info(f"Executing tool: {block.name}, args:\n{block.input}")
                     handler = self._get_tool_handler(block.name)
                     try:
                         output = handler(**block.input) if handler else f"Unknown tool: {block.name}"
@@ -318,7 +296,7 @@ class LeadAgent:
                         self._logger.error(f"Tool {block.name} failed: {e}")
                         output = f"Error: {e}"
 
-                    self._logger.info(f"Executing tool '{block.name}' result: {str(output)}")
+                    self._logger.info(f"Executing tool: {block.name}, result:\n{str(output)}")
                     results.append({
                         "type": "tool_result",
                         "tool_use_id": block.id,

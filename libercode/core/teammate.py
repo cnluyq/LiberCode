@@ -162,11 +162,11 @@ class TeammateAgent:
                                 time.sleep(30)
                                 continue
                         self._logger.error(f"Exception during LLM call: {e}")
-                        tprint(f"Exception happened: {e}")
+                        tprint(f"Teammate {self.name} shut down because of a fatal internel exception happened")
                         msg = Message(
                             type=MessageType.SHUTDOWN_BY_SELF,
                             sender=self.name,
-                            content=f"Teammate {self.name} is shutting down because of a fatal internel error",
+                            content=f"Teammate {self.name} shut down because of a fatal internel error",
                         )
                         self.message_bus.send(msg, to="lead")
                         return
@@ -202,7 +202,7 @@ class TeammateAgent:
                             else:
                                 output = self._execute_tool(block.name, block.input)
 
-                            self._logger.info(f"Executing tool '{block.name}' result: {str(output)}")
+                            self._logger.info(f"Executing tool: {block.name}, result:\n{str(output)}")
                             results.append({
                                 "type": "tool_result",
                                 "tool_use_id": block.id,
@@ -299,7 +299,7 @@ class TeammateAgent:
 
         args_substr = str(args)[:100] + ("..." if len(str(args)) > 100 else "")
         tprint(f"Executing tool: {tool_name}, args: {args_substr}")
-        self._logger.info(f"Executing tool: {tool_name}, args: {args}")
+        self._logger.info(f"Executing tool: {tool_name}, args:\n{args}")
         handler = handlers.get(tool_name)
         return handler(**args) if handler else f"Unknown tool: {tool_name}"
 

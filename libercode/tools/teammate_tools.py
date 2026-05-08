@@ -182,7 +182,7 @@ def create_teammate_tool_handlers(
 
     def handle_read_inbox(**kwargs):
         messages = message_bus.read_inbox(sender_name)
-        return json.dumps([m.to_dict() for m in messages], indent=2)
+        return json.dumps([m.to_dict() for m in messages], indent=2, ensure_ascii=False)
 
     def handle_shutdown_response(**kwargs):
         msg = Message(
@@ -255,7 +255,7 @@ def create_teammate_tool_handlers(
 
     def handle_task_get(**kwargs):
         task = task_manager.get(kwargs["task_id"])
-        return json.dumps(task.to_dict(), indent=2)
+        return json.dumps(task.to_dict(), indent=2, ensure_ascii=False)
 
     return {
         "bash": handle_bash,
