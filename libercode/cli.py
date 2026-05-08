@@ -185,8 +185,8 @@ async def async_repl_loop(lead, message_bus, task_manager, teammate_manager, log
             if query.strip() == "/review":
                 log.debug("Running /review command to review the project")
                 prompt_path = Path(__file__).parent / "prompts" / "review.txt"
-                init_prompt = prompt_path.read_text()
-                await run_llm_with_interrupt(lead, init_prompt, log)
+                review_prompt = prompt_path.read_text()
+                await run_llm_with_interrupt(lead, review_prompt, log)
                 continue
 
             if query.strip().startswith("!"):
