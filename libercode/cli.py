@@ -179,14 +179,16 @@ async def async_repl_loop(lead, message_bus, task_manager, teammate_manager, log
                 log.debug("Running /init command to create/update AGENTS.md")
                 prompt_path = Path(__file__).parent / "prompts" / "init_agents_md.txt"
                 init_prompt = prompt_path.read_text()
-                await run_llm_with_interrupt(lead, init_prompt, log)
+                message = {"role": "user", "content": init_prompt}
+                await run_llm_with_interrupt(lead, message, log)
                 continue
 
             if query.strip() == "/review":
                 log.debug("Running /review command to review the project")
                 prompt_path = Path(__file__).parent / "prompts" / "review.txt"
                 review_prompt = prompt_path.read_text()
-                await run_llm_with_interrupt(lead, review_prompt, log)
+                message = {"role": "user", "content": review_prompt}
+                await run_llm_with_interrupt(lead, message, log)
                 continue
 
             if query.strip().startswith("!"):
@@ -240,16 +242,17 @@ async def async_repl_loop(lead, message_bus, task_manager, teammate_manager, log
                 continue
 
             log.info(f"Processing user input: \n{query}")
-            await run_llm_with_interrupt(lead, query, log)
+            message = {"role": "user", "content": query}
+            await run_llm_with_interrupt(lead, message, log)
     finally:
         signal.signal(signal.SIGINT, previous_handler)
 
 
-async def run_llm_with_interrupt(lead, query, log):
+async def run_llm_with_interrupt(lead, message, log):
     """Run LLM processing with interrupt checking."""
     clear_cancel()
     lead._inject_agents_md()
-    lead.messages.append({"role": "user", "content": query})
+    lead.messages.append(message)
     lead._input_counter += 1
     lead._agent_counter = 0
 
