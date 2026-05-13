@@ -277,8 +277,9 @@ def create_lead_tool_handlers(
         return json.dumps(task.to_dict(), indent=2, ensure_ascii=False)
 
     def handle_spawn_teammate(**kwargs):
+        prompt_message={"role": "user", "content": kwargs["prompt"]}
         return teammate_manager.spawn(
-            kwargs["name"], kwargs["role"], kwargs["prompt"]
+            kwargs["name"], kwargs["role"], prompt_message
         )
 
     def handle_list_teammates(**kwargs):

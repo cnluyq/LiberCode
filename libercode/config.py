@@ -37,6 +37,11 @@ class Config:
     idle_timeout: int
     debug: bool
 
+    # Session auto-save parameters
+    session_auto_save: bool
+    session_auto_save_interval: float
+    session_dir: Path
+
     def __init__(self, env_file: str | None = None):
         """
         Initialize configuration from environment.
@@ -63,6 +68,11 @@ class Config:
         self.poll_interval = 5  # seconds
         self.idle_timeout = 60*60*12  # seconds
         self.debug = os.getenv("LIBERCODE_DEBUG", "false").lower() == "true"
+
+        # Session auto-save parameters
+        self.session_auto_save = os.getenv("LIBERCODE_SESSION_AUTO_SAVE", "true").lower() == "true"
+        self.session_auto_save_interval = float(os.getenv("LIBERCODE_SESSION_INTERVAL", "1.0"))
+        self.session_dir = self.workdir / ".libercode" / "sessions"
 
         # Handle base_url side effect from original code
         if self.base_url:

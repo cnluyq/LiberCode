@@ -53,14 +53,14 @@ class TeammateManager:
         """Save team configuration"""
         self.config_path.write_text(json.dumps(self._team_config, indent=2))
 
-    def spawn(self, name: str, role: str, prompt: str) -> str:
+    def spawn(self, name: str, role: str, initial_message: dict) -> str:
         """
         Spawn a new teammate.
 
         Args:
             name: Teammate name
             role: Teammate role
-            prompt: Initial prompt
+            initial_message: Initial message for LLM
 
         Returns:
             Status message
@@ -115,7 +115,7 @@ class TeammateManager:
         team_name = self._team_config.get("team_name", "default")
         thread = threading.Thread(
             target=teammate.run,
-            args=(prompt, team_name),
+            args=(initial_message, team_name),
             daemon=True,
         )
         self.threads[name] = thread

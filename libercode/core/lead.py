@@ -150,7 +150,7 @@ class LeadAgent:
 
             except Exception as e:
                 if hasattr(e, 'status_code'):
-                    if e.status_code == 500 or e.status_code == 502:
+                    if e.status_code == 500 or e.status_code == 502 or e.status_code == 503:
                         self._logger.warning("LLM internal error, sleeping and retrying")
                         time.sleep(30)
                         continue

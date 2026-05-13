@@ -21,6 +21,7 @@ from libercode.core.interrupt_handler import request_cancel, clear_cancel
 from libercode.utils.logging import setup_logging, get_logger
 from libercode.utils.token_tracker import TokenTracker
 from libercode.ui.output import tprint
+from libercode.session_manager import SessionManager, AutoSaver, SessionRecoveryManager
 
 _current_task = None
 
@@ -73,13 +74,27 @@ def main():
     )
     log.info("Lead agent initialized")
 
+    session_manager = SessionManager(
+        session_dir=config.workdir,
+        lead=lead,
+        teammate_manager=teammate_manager,
+        task_manager=task_manager,
+        message_bus=message_bus,
+    )
+    session_manager.create_session()
+    auto_saver = AutoSaver(session_manager, initial_interval=config.session_auto_save_interval)
+    log.info("Session manager initialized")
+
     tprint("LiberCode - AI Agent for Teams")
     tprint("Type 'q' or 'exit' to quit")
     tprint("Press Ctrl+C to interrupt LLM processing")
     tprint()
 
     try:
-        asyncio.run(async_repl_loop(lead, message_bus, task_manager, teammate_manager, log))
+        if config.session_auto_save:
+            asyncio.run(async_repl_loop(lead, message_bus, task_manager, teammate_manager, log, auto_saver, session_manager))
+        else:
+            asyncio.run(async_repl_loop(lead, message_bus, task_manager, teammate_manager, log, None, None))
     except KeyboardInterrupt:
         tprint("\nGoodbye!")
         log.info("LiberCode CLI shutting down")
@@ -89,7 +104,7 @@ def main():
     return 0
 
 
-async def async_repl_loop(lead, message_bus, task_manager, teammate_manager, log):
+async def async_repl_loop(lead, message_bus, task_manager, teammate_manager, log, auto_saver=None, session_manager=None):
     """Async REPL loop with interrupt support."""
     from libercode.ui.input_handler import input_with_cursor_support
 
@@ -105,6 +120,9 @@ async def async_repl_loop(lead, message_bus, task_manager, teammate_manager, log
             _current_task.cancel()
 
     previous_handler = signal.signal(signal.SIGINT, handle_signal)
+
+    if auto_saver:
+        auto_saver.start()
 
     try:
         while True:
@@ -144,6 +162,7 @@ async def async_repl_loop(lead, message_bus, task_manager, teammate_manager, log
                     tprint(" /clear - Clear lead's message history")
                     tprint(" /clear <teammate> - Clear specific teammate's message history")
                     tprint(" /clear all - Clear lead and all teammates' message history")
+                    tprint(" /sessions - List all saved sessions")
                     tprint(" q, exit - Exit the application")
                     continue
 
@@ -216,6 +235,22 @@ async def async_repl_loop(lead, message_bus, task_manager, teammate_manager, log
                             tprint(f"Error: Teammate '{teammate_name}' not found.")
                     continue
 
+                if query.strip() == "/sessions":
+                    log.debug("Listing saved sessions")
+                    recovery_manager = SessionRecoveryManager(Path.cwd())
+                    sessions = recovery_manager.list_sessions()
+                    if not sessions:
+                        tprint("No saved sessions found.")
+                    else:
+                        tprint("Available sessions:")
+                        for i, sess in enumerate(sessions, 1):
+                            created = sess.get("created_at", "unknown")
+                            updated = sess.get("updated_at", "unknown")
+                            session_name = sess.get("session_name", "unknown")
+                            tprint(f"  {i}. {session_name}")
+                            tprint(f"     Created: {created}, Updated: {updated}")
+                    continue
+
                 tprint(f"Error: no such command. run /help for usage.")
                 continue
 
@@ -248,6 +283,8 @@ async def async_repl_loop(lead, message_bus, task_manager, teammate_manager, log
             message = {"role": "user", "content": query}
             await run_llm_with_interrupt(lead, message, log)
     finally:
+        if auto_saver:
+            await auto_saver.stop()
         signal.signal(signal.SIGINT, previous_handler)
 
 

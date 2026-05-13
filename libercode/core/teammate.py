@@ -82,11 +82,11 @@ class TeammateAgent:
         """Initialize logger after dataclass init."""
         self._logger = get_logger(f'libercode.teammate.{self.name}', component='teammate')
     
-    def run(self, initial_prompt: str, team_name: str = "default") -> None:
+    def run(self, initial_message: dict, team_name: str = "default") -> None:
         """Main teammate loop.
         
         Args:
-            initial_prompt: Starting prompt
+            initial_message: Starting message for LLM
             team_name: Team name
         """
         # Set thread output if provided
@@ -112,7 +112,7 @@ class TeammateAgent:
 
             self._inject_agents_md()
             # Initialize messages
-            self.messages = [{"role": "user", "content": initial_prompt}]
+            self.messages.append(initial_message)
 
             # Main loop
             while True:
@@ -153,7 +153,7 @@ class TeammateAgent:
                         
                     except Exception as e:
                         if hasattr(e, 'status_code'):
-                            if e.status_code == 500 or e.status_code == 502:
+                            if e.status_code == 500 or e.status_code == 502 or e.status_code == 503:
                                 self._logger.warning("LLM internal error, sleeping and retrying")
                                 time.sleep(30)
                                 continue
