@@ -67,7 +67,7 @@ class Message:
         Returns:
             JSON string with all message fields
         """
-        return json.dumps(self.to_dict())
+        return json.dumps(self.to_dict(), ensure_ascii=False)
 
     @classmethod
     def from_json(cls, json_str: str) -> "Message":

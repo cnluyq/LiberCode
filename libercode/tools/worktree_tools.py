@@ -126,7 +126,7 @@ def create_worktree_tool_handlers(
             kwargs.get("task_id"),
             kwargs.get("base_ref", "HEAD"),
         )
-        return json.dumps(entry, indent=2)
+        return json.dumps(entry, indent=2, ensure_ascii=False)
 
     def handle_worktree_list(**kwargs):
         return worktree_manager.list_all()
@@ -146,7 +146,7 @@ def create_worktree_tool_handlers(
 
     def handle_worktree_keep(**kwargs):
         entry = worktree_manager.keep(kwargs["name"])
-        return json.dumps(entry, indent=2)
+        return json.dumps(entry, indent=2, ensure_ascii=False)
 
     def handle_worktree_events(**kwargs):
         return event_bus.list_recent(kwargs.get("limit", 20))
@@ -158,7 +158,7 @@ def create_worktree_tool_handlers(
             worktree=kwargs["worktree"],
             owner=kwargs.get("owner"),
         )
-        return json.dumps(task.to_dict(), indent=2)
+        return json.dumps(task.to_dict(), indent=2, ensure_ascii=False)
 
     return {
         "worktree_create": handle_worktree_create,

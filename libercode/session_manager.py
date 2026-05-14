@@ -120,7 +120,7 @@ class SessionManager:
             "save_count": self._current_session.save_count,
             "interval_seconds": self._current_session.interval_seconds,
         }
-        meta_path.write_text(json.dumps(meta_data, indent=2))
+        meta_path.write_text(json.dumps(meta_data, indent=2, ensure_ascii=False))
 
     def _copy_file_if_changed(self, src: Path, dst: Path) -> bool:
         """Copy file only if source has changed (based on mtime)."""
@@ -148,7 +148,7 @@ class SessionManager:
 
         lead_path = session_path / "lead.json"
         data = {"messages": messages, "saved_at": datetime.now().isoformat()}
-        lead_path.write_text(json.dumps(data, indent=2))
+        lead_path.write_text(json.dumps(data, indent=2, ensure_ascii=False))
         self._file_mtimes[str(lead_path)] = time.time()
         return True
 
@@ -211,7 +211,7 @@ class SessionManager:
                     try:
                         messages = serialize_content(teammate.messages)
                         data = {"messages": messages, "saved_at": datetime.now().isoformat()}
-                        agent_dst.write_text(json.dumps(data, indent=2))
+                        agent_dst.write_text(json.dumps(data, indent=2, ensure_ascii=False))
                         self._file_mtimes[str(agent_dst)] = time.time()
                         changed = True
                     except Exception as e:

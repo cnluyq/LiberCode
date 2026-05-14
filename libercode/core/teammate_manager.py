@@ -51,7 +51,7 @@ class TeammateManager:
 
     def _save_config(self) -> None:
         """Save team configuration"""
-        self.config_path.write_text(json.dumps(self._team_config, indent=2))
+        self.config_path.write_text(json.dumps(self._team_config, indent=2, ensure_ascii=False))
 
     def spawn(self, name: str, role: str, initial_message: dict) -> str:
         """

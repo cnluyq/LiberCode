@@ -55,7 +55,7 @@ class EventBus:
             payload["error"] = error
 
         with self.path.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(payload) + "\n")
+            f.write(json.dumps(payload, ensure_ascii=False) + "\n")
 
     def list_recent(self, limit: int = 20) -> str:
         """
@@ -78,4 +78,4 @@ class EventBus:
             except Exception:
                 items.append({"event": "parse_error", "raw": line})
 
-        return json.dumps(items, indent=2)
+        return json.dumps(items, indent=2, ensure_ascii=False)

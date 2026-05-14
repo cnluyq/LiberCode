@@ -63,7 +63,7 @@ class TaskManager:
             task: Task to save
         """
         path = self.tasks_dir / f"task_{task.id}.json"
-        path.write_text(json.dumps(task.to_dict(), indent=2))
+        path.write_text(json.dumps(task.to_dict(), indent=2, ensure_ascii=False))
 
     def create(
             self,

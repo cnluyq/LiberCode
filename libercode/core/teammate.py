@@ -166,7 +166,7 @@ class TeammateAgent:
                     if msg.type == MessageType.SHUTDOWN_REQUEST:
                         self._logger.info(f"Teammate {self.name} received shutdown request during work")
 
-                    self.messages.append({"role": "user", "content": json.dumps(msg.to_dict())})
+                    self.messages.append({"role": "user", "content": json.dumps(msg.to_dict(), ensure_ascii=False)})
 
                 # Call LLM
                 self._logger.info(f"round#{round_num} calling LLM ......")
@@ -271,7 +271,7 @@ class TeammateAgent:
                         if msg.type == MessageType.SHUTDOWN_REQUEST:
                             self._logger.info(f"Teammate {self.name} received shutdown request during idle")
 
-                        self.messages.append({"role": "user", "content": json.dumps(msg.to_dict())})
+                        self.messages.append({"role": "user", "content": json.dumps(msg.to_dict(), ensure_ascii=False)})
                         resume = True
 
                 if resume:
@@ -411,7 +411,7 @@ class TeammateAgent:
         # Claim it
         current_task["owner"] = self.name
         current_task["status"] = "in_progress"
-        task_file.write_text(json.dumps(current_task, indent=2))
+        task_file.write_text(json.dumps(current_task, indent=2, ensure_ascii=False))
 
         # Create task prompt
         task_prompt = (

@@ -53,7 +53,7 @@ class WorktreeManager:
 
         self.index_path = self.dir / "index.json"
         if not self.index_path.exists():
-            self.index_path.write_text(json.dumps({"worktrees": []}, indent=2))
+            self.index_path.write_text(json.dumps({"worktrees": []}, indent=2, ensure_ascii=False))
 
         self.git_available = self._is_git_repo()
 
@@ -108,7 +108,7 @@ class WorktreeManager:
 
     def _save_index(self, data: Dict) -> None:
         """Save worktree index."""
-        self.index_path.write_text(json.dumps(data, indent=2))
+        self.index_path.write_text(json.dumps(data, indent=2, ensure_ascii=False))
 
     def _find(self, name: str) -> Optional[Dict]:
         """

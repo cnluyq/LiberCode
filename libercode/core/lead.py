@@ -121,7 +121,7 @@ class LeadAgent:
                 inbox_data = [msg.to_dict() for msg in inbox]
                 self.messages.append({
                     "role": "user",
-                    "content": f"<inbox>{json.dumps(inbox_data, indent=2)}</inbox>",
+                    "content": f"<inbox>{json.dumps(inbox_data, indent=2, ensure_ascii=False)}</inbox>",
                 })
                 self.messages.append({
                     "role": "assistant",
@@ -217,7 +217,7 @@ class LeadAgent:
                 inbox_data = [msg.to_dict() for msg in inbox]
                 self.messages.append({
                     "role": "user",
-                    "content": f"<inbox>{json.dumps(inbox_data, indent=2)}</inbox>",
+                    "content": f"<inbox>{json.dumps(inbox_data, indent=2, ensure_ascii=False)}</inbox>",
                 })
                 self.messages.append({
                     "role": "assistant",
