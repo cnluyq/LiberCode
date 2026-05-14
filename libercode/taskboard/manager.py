@@ -4,6 +4,7 @@ Provides CRUD operations for tasks with dependency tracking.
 """
 
 import json
+import shutil
 from pathlib import Path
 from typing import List, Optional
 
@@ -239,3 +240,22 @@ class TaskManager:
             lines.append(f"{marker} #{task.id}: {task.subject}{blocked}")
 
         return "\n".join(lines)
+
+    def restore_from_dir(self, source_dir: Path) -> int:
+        """Restore tasks from a session backup directory.
+
+        Clears existing tasks and copies from source. Returns count of restored tasks.
+        """
+        if not source_dir.exists():
+            return 0
+
+        for existing in self.tasks_dir.glob("task_*.json"):
+            existing.unlink()
+
+        count = 0
+        for src_file in sorted(source_dir.glob("task_*.json")):
+            shutil.copy2(src_file, self.tasks_dir / src_file.name)
+            count += 1
+
+        self._next_id = self._max_id() + 1
+        return count

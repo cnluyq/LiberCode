@@ -466,3 +466,118 @@ class SessionRecoveryManager:
 
         shutil.rmtree(session_path)
         return True
+
+    def restore_session(
+        self,
+        session_name: str,
+        lead,
+        teammate_manager,
+        task_manager,
+        message_bus,
+    ) -> Dict[str, Any]:
+        """Restore a session into the given live components.
+
+        Returns a summary dict with counts of restored items.
+        """
+        import time as _time
+        from libercode.utils.logging import get_logger as _get_logger
+        _logger = _get_logger('libercode.session.restore')
+
+        session_path = self.session_dir / session_name
+        if not session_path.exists():
+            return {"error": f"Session '{session_name}' not found"}
+
+        summary = {"session_name": session_name, "restored": {}}
+
+        # Step 1: Shutdown all current teammates
+        if teammate_manager:
+            shutdown_results = teammate_manager.shutdown_all()
+            _logger.info(f"Shutdown results: {shutdown_results}")
+            summary["shutdown_results"] = shutdown_results
+
+        # Step 2: Restore tasks
+        tasks_src = session_path / "tasks"
+        if task_manager and tasks_src.exists():
+            task_count = task_manager.restore_from_dir(tasks_src)
+            summary["restored"]["tasks"] = task_count
+            _logger.info(f"Restored {task_count} tasks")
+
+        # Step 3: Restore inbox files (lead + teammates)
+        if message_bus:
+            inbox_dst = message_bus.inbox_dir
+
+            lead_inbox_src = session_path / "lead_inbox.jsonl"
+            if lead_inbox_src.exists():
+                shutil.copy2(lead_inbox_src, inbox_dst / "lead.jsonl")
+                summary["restored"]["lead_inbox"] = True
+                _logger.info("Restored lead inbox")
+
+            teammates_path = session_path / "teammates"
+            if teammates_path.exists():
+                for inbox_file in teammates_path.glob("*_inbox.jsonl"):
+                    name = inbox_file.stem.replace("_inbox", "")
+                    shutil.copy2(inbox_file, inbox_dst / f"{name}.jsonl")
+                    _logger.info(f"Restored inbox for {name}")
+                summary["restored"]["teammate_inboxes"] = True
+
+        # Step 4: Restore team config
+        team_config_src = session_path / "team_config.json"
+        if teammate_manager and team_config_src.exists():
+            config_path = getattr(teammate_manager, 'config_path', None)
+            if config_path:
+                shutil.copy2(team_config_src, config_path)
+            teammate_manager.reload_config()
+            summary["restored"]["team_config"] = True
+            _logger.info("Restored team config")
+
+        # Step 5: Restore lead messages
+        lead_src = session_path / "lead.json"
+        if lead and lead_src.exists():
+            try:
+                lead_data = json.loads(lead_src.read_text())
+                lead.messages = lead_data.get("messages", [])
+                lead._agents_md_injected = True
+                input_count = sum(
+                    1 for m in lead.messages
+                    if isinstance(m, dict) and m.get("role") == "user"
+                )
+                lead._input_counter = input_count
+                summary["restored"]["lead_messages"] = len(lead.messages)
+                _logger.info(f"Restored {len(lead.messages)} lead messages")
+            except Exception as e:
+                _logger.error(f"Failed to restore lead messages: {e}")
+                summary["restored"]["lead_messages"] = f"error: {e}"
+
+        # Step 6: Spawn teammates with restored history
+        if teammate_manager:
+            teammates_path = session_path / "teammates"
+            spawned = []
+            if teammate_manager._team_config.get("members"):
+                for member in teammate_manager._team_config["members"]:
+                    name = member["name"]
+                    role = member["role"]
+                    status = member.get("status", "working")
+
+                    if status == "shutdown":
+                        _logger.info(f"Skipping shutdown teammate '{name}'")
+                        continue
+
+                    restored_messages = []
+                    if teammates_path.exists():
+                        msg_file = teammates_path / f"{name}_messages.json"
+                        if msg_file.exists():
+                            try:
+                                msg_data = json.loads(msg_file.read_text())
+                                restored_messages = msg_data.get("messages", [])
+                            except Exception as e:
+                                _logger.warning(f"Failed to load messages for {name}: {e}")
+
+                    result = teammate_manager.spawn_with_history(name, role, restored_messages)
+                    spawned.append({"name": name, "role": role, "messages": len(restored_messages)})
+                    _logger.info(f"Spawned teammate '{name}' with {len(restored_messages)} messages")
+
+                    _time.sleep(0.5)
+
+            summary["restored"]["teammates"] = spawned
+
+        return summary

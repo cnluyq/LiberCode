@@ -8,6 +8,7 @@ import json
 import time
 import sys
 import signal
+from datetime import datetime
 from pathlib import Path
 from anthropic import Anthropic
 
@@ -21,7 +22,7 @@ from libercode.core.interrupt_handler import request_cancel, clear_cancel
 from libercode.utils.logging import setup_logging, get_logger
 from libercode.utils.token_tracker import TokenTracker
 from libercode.ui.output import tprint
-from libercode.session_manager import SessionManager, AutoSaver, SessionRecoveryManager
+from libercode.session_manager import SessionManager, AutoSaver, SessionRecoveryManager, SessionMeta
 
 _current_task = None
 
@@ -163,6 +164,8 @@ async def async_repl_loop(lead, message_bus, task_manager, teammate_manager, log
                     tprint(" /clear <teammate> - Clear specific teammate's message history")
                     tprint(" /clear all - Clear lead and all teammates' message history")
                     tprint(" /sessions - List all saved sessions")
+                    tprint(" /sessions restore <name_or_number> - Restore a session")
+                    tprint(" /sessions delete <name_or_number> - Delete a session")
                     tprint(" q, exit - Exit the application")
                     continue
 
@@ -235,21 +238,131 @@ async def async_repl_loop(lead, message_bus, task_manager, teammate_manager, log
                             tprint(f"Error: Teammate '{teammate_name}' not found.")
                     continue
 
-                if query.strip() == "/sessions":
-                    log.debug("Listing saved sessions")
+                if query.strip().startswith("/sessions"):
+                    parts = query.strip().split()
+                    sub_cmd = parts[1] if len(parts) > 1 else None
+
+                    if not session_manager or not auto_saver:
+                        tprint("Session management is not enabled.")
+                        continue
+
+                    current_session_name = session_manager.get_current_session_name()
+                    
                     recovery_manager = SessionRecoveryManager(Path.cwd())
-                    sessions = recovery_manager.list_sessions()
-                    if not sessions:
-                        tprint("No saved sessions found.")
+
+                    if sub_cmd == "restore" and len(parts) > 2:
+                        session_identifier = " ".join(parts[2:])
+                    elif sub_cmd == "delete" and len(parts) > 2:
+                        session_identifier = " ".join(parts[2:])
+                    elif sub_cmd == "restore" or sub_cmd == "delete":
+                        tprint(f"Usage: /sessions {sub_cmd} <name_or_number>")
+                        continue
                     else:
-                        tprint("Available sessions:")
-                        for i, sess in enumerate(sessions, 1):
-                            created = sess.get("created_at", "unknown")
-                            updated = sess.get("updated_at", "unknown")
-                            session_name = sess.get("session_name", "unknown")
-                            tprint(f"  {i}. {session_name}")
-                            tprint(f"     Created: {created}, Updated: {updated}")
-                    continue
+                        sessions = recovery_manager.list_sessions()
+                        if not sessions:
+                            tprint("No saved sessions found.")
+                        else:
+                            tprint("Available sessions:")
+                            for i, sess in enumerate(sessions, 1):
+                                created = sess.get("created_at", "unknown")
+                                updated = sess.get("updated_at", "unknown")
+                                session_name = sess.get("session_name", "unknown")
+                                save_count = sess.get("save_count", 0)
+                                if session_name == current_session_name:
+                                    tprint(f" {i}. {session_name} (current active session)")
+                                else:
+                                    tprint(f" {i}. {session_name}")
+
+                                tprint(f"    Created: {created}  Updated: {updated}  Saves: {save_count}")
+                            tprint()
+                            tprint("Commands: /sessions restore <name_or_number>")
+                            tprint("          /sessions delete <name_or_number>")
+                        continue
+
+                    sessions = recovery_manager.list_sessions()
+                    session_name = None
+
+                    try:
+                        idx = int(session_identifier) - 1
+                        if 0 <= idx < len(sessions):
+                            session_name = sessions[idx].get("session_name")
+                        else:
+                            tprint(f"Invalid session number: {session_identifier}")
+                            continue
+                    except ValueError:
+                        session_name = session_identifier
+
+                    if not session_name:
+                        tprint(f"Session not found: {session_identifier}")
+                        continue
+
+                    if session_name == current_session_name:
+                        tprint(f"Cannot {sub_cmd} the current active session: {session_name}")
+                        continue
+
+                    if sub_cmd == "delete":
+                        if recovery_manager.delete_session(session_name):
+                            tprint(f"Deleted session: {session_name}")
+                        else:
+                            tprint(f"Session not found: {session_name}")
+                        continue
+
+                    if sub_cmd == "restore":
+                        log.info(f"Restoring session: {session_name}")
+
+                        await auto_saver.stop()
+
+                        try:
+                            summary = recovery_manager.restore_session(
+                                session_name=session_name,
+                                lead=lead,
+                                teammate_manager=teammate_manager,
+                                task_manager=task_manager,
+                                message_bus=message_bus,
+                            )
+
+                            if "error" in summary:
+                                tprint(f"Restore failed: {summary['error']}")
+                            else:
+                                session_manager._current_session = None
+                                session_path = session_manager._get_session_path(session_name)
+                                if session_path.exists():
+                                    session_manager._current_session = SessionMeta(
+                                        session_id=summary.get("meta", {}).get("session_id", ""),
+                                        session_name=session_name,
+                                        created_at=summary.get("meta", {}).get("created_at", ""),
+                                        updated_at=datetime.now().isoformat(),
+                                        save_count=0,
+                                        interval_seconds=session_manager._current_interval,
+                                    )
+                                else:
+                                    session_manager.create_session()
+
+                                session_manager._file_mtimes.clear()
+
+                                restored = summary.get("restored", {})
+                                tprint(f"Session restored: {session_name}")
+                                if "tasks" in restored:
+                                    tprint(f"  Tasks: {restored['tasks']} restored")
+                                if "lead_messages" in restored:
+                                    tprint(f"  Lead messages: {restored['lead_messages']} restored")
+                                if "lead_inbox" in restored:
+                                    tprint("  Lead inbox: restored")
+                                if "teammates" in restored:
+                                    for tm in restored["teammates"]:
+                                        tprint(f"  Teammate '{tm['name']}': {tm['messages']} messages restored")
+                                if "teammate_inboxes" in restored:
+                                    tprint("  Teammate inboxes: restored")
+                                if "team_config" in restored:
+                                    tprint("  Team config: restored")
+                        except Exception as e:
+                            log.error(f"Restore failed: {e}")
+                            tprint(f"Restore failed: {e}")
+                        finally:
+                            auto_saver.start()
+
+                        continue
+
 
                 tprint(f"Error: no such command. run /help for usage.")
                 continue

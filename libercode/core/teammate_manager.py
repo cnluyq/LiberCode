@@ -123,6 +123,99 @@ class TeammateManager:
 
         return f"Spawned '{name}' (role: {role})" + (f" in pane" if pty_file else "")
 
+    def spawn_with_history(self, name: str, role: str, restored_messages: list) -> str:
+        """Spawn a teammate with pre-restored message history (for session recovery).
+
+        Args:
+            name: Teammate name
+            role: Teammate role
+            restored_messages: Full message history to restore
+
+        Returns:
+            Status message
+        """
+        member = self._find_member(name)
+
+        if member and member.get("status") not in ("idle", "shutdown"):
+            return f"Error: '{name}' is currently {member['status']}"
+
+        pty_file = None
+        if self._is_tmux_available():
+            try:
+                pty_path = self._create_tmux_pane_for_teammate(name)
+                pty_file = open(pty_path, 'w', buffering=1)
+                if self.config.debug:
+                    pty_file.write(f"Teammate {name} pane initialized (recovered).\n")
+                    pty_file.flush()
+            except Exception:
+                pass
+
+        if member:
+            member["status"] = "working"
+        else:
+            member = {
+                "name": name,
+                "role": role,
+                "status": "working",
+            }
+            self._team_config["members"].append(member)
+
+        self._save_config()
+
+        teammate = TeammateAgent(
+            name=name,
+            role=role,
+            client=self.client,
+            config=self.config,
+            message_bus=self.message_bus,
+            task_manager=self.task_manager,
+            pty_file=pty_file,
+        )
+
+        self._teammates[name] = teammate
+
+        team_name = self._team_config.get("team_name", "default")
+        thread = threading.Thread(
+            target=teammate.run_with_history,
+            args=(restored_messages, team_name),
+            daemon=True,
+        )
+        self.threads[name] = thread
+        thread.start()
+
+        return f"Spawned '{name}' (role: {role}) [recovered]" + (f" in pane" if pty_file else "")
+
+    def shutdown_all(self, timeout: float = 5.0) -> List[str]:
+        """Shutdown all active teammates and wait for their threads.
+
+        Args:
+            timeout: Max seconds to wait per thread
+
+        Returns:
+            List of shutdown status messages
+        """
+        results = []
+
+        for name, teammate in list(self._teammates.items()):
+            teammate._should_shutdown = True
+            self._set_status(name, "shutdown")
+
+        for name, thread in list(self.threads.items()):
+            thread.join(timeout=timeout)
+            if thread.is_alive():
+                results.append(f"'{name}' did not shut down within {timeout}s")
+            else:
+                results.append(f"'{name}' shut down")
+
+        self._teammates.clear()
+        self.threads.clear()
+
+        return results
+
+    def reload_config(self) -> None:
+        """Reload team configuration from disk."""
+        self._team_config = self._load_config()
+
     def _is_tmux_available(self) -> bool:
         """Check if tmux is available"""
         from libercode.ui import is_tmux_available
