@@ -181,15 +181,7 @@ class LeadAgent:
             results = []
             for block in response.content:
                 if block.type == "tool_use":
-                    args_str = str(block.input)[:100] + ("..." if len(str(block.input)) > 100 else "")
-                    tprint(f"Executing tool: {block.name}, args: {args_str}")
-                    self._logger.info(f"Executing tool: {block.name}, args:\n{block.input}")
-                    handler = self._get_tool_handler(block.name)
-                    try:
-                        output = handler(**block.input) if handler else f"Unknown tool: {block.name}"
-                    except Exception as e:
-                        self._logger.error(f"Tool {block.name} failed: {e}")
-                        output = f"Error: {e}"
+                    output = self._execute_tool(block.name, block.input)
 
                     self._logger.info(f"Executing tool: {block.name}, result:\n{str(output)}")
                     results.append({
@@ -286,15 +278,7 @@ class LeadAgent:
             results = []
             for block in response.content:
                 if block.type == "tool_use":
-                    args_str = str(block.input)[:100] + ("..." if len(str(block.input)) > 100 else "")
-                    tprint(f"Executing tool: {block.name}, args: {args_str}")
-                    self._logger.info(f"Executing tool: {block.name}, args:\n{block.input}")
-                    handler = self._get_tool_handler(block.name)
-                    try:
-                        output = handler(**block.input) if handler else f"Unknown tool: {block.name}"
-                    except Exception as e:
-                        self._logger.error(f"Tool {block.name} failed: {e}")
-                        output = f"Error: {e}"
+                    output = self._execute_tool(block.name, block.input)
 
                     self._logger.info(f"Executing tool: {block.name}, result:\n{str(output)}")
                     results.append({
@@ -321,13 +305,35 @@ class LeadAgent:
         self.messages.clear()
         self._logger.info("Lead message history cleared")
 
-    def _get_tool_handler(self, tool_name: str):
-        """Get handler for specific tool."""
-        from libercode.tools.lead_tools import create_lead_tool_handlers
+    def _execute_tool(self, tool_name: str, args: dict) -> str:
+        """Execute a tool with validation."""
+        from libercode.tools.lead_tools import create_lead_tool_handlers, get_lead_tools
+        from libercode.tools.validator import validate_and_fix_args
+
+        tools = get_lead_tools()
+        fixed_args, validation_error, validation_warning = validate_and_fix_args(tool_name, args, tools)
+        if validation_error:
+            self._logger.warning(f"Tool args validation failed: {validation_error}")
+            return validation_error
 
         handlers = create_lead_tool_handlers(
             task_manager=self.task_manager,
             message_bus=self.message_bus,
             teammate_manager=self.teammate_manager,
         )
-        return handlers.get(tool_name)
+
+        args_substr = str(fixed_args)[:100] + ("..." if len(str(fixed_args)) > 100 else "")
+        tprint(f"Executing tool: {tool_name}, args: {args_substr}")
+        self._logger.info(f"Executing tool: {tool_name}, args:\n{fixed_args}")
+        handler = handlers.get(tool_name)
+        if not handler:
+            return f"Unknown tool: {tool_name}"
+        try:
+            result = handler(**fixed_args)
+        except Exception as e:
+            self._logger.error(f"Tool {tool_name} failed: {e}")
+            result = f"Error: {e}"
+
+        if validation_warning:
+            result = f"{result}\n\n{validation_warning}"
+        return result

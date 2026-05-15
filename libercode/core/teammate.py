@@ -316,8 +316,10 @@ class TeammateAgent:
     def _execute_tool(self, tool_name: str, args: Dict) -> str:
         """Execute a tool."""
         from libercode.tools.teammate_tools import create_teammate_tool_handlers, get_teammate_tools
+        from libercode.tools.validator import validate_and_fix_args
 
-        validation_error = self._validate_tool_args(tool_name, args)
+        tools = get_teammate_tools()
+        fixed_args, validation_error, validation_warning = validate_and_fix_args(tool_name, args, tools)
         if validation_error:
             self._logger.warning(f"Tool args validation failed: {validation_error}")
             return validation_error
@@ -329,37 +331,21 @@ class TeammateAgent:
             teammate=self,
         )
 
-        args_substr = str(args)[:100] + ("..." if len(str(args)) > 100 else "")
+        args_substr = str(fixed_args)[:100] + ("..." if len(str(fixed_args)) > 100 else "")
         tprint(f"Executing tool: {tool_name}, args: {args_substr}")
-        self._logger.info(f"Executing tool: {tool_name}, args:\n{args}")
+        self._logger.info(f"Executing tool: {tool_name}, args:\n{fixed_args}")
         handler = handlers.get(tool_name)
-        return handler(**args) if handler else f"Unknown tool: {tool_name}"
+        if not handler:
+            return f"Unknown tool: {tool_name}"
+        try:
+            result = handler(**fixed_args)
+        except Exception as e:
+            self._logger.error(f"Tool {tool_name} failed: {e}")
+            result = f"Error: {e}"
 
-    def _validate_tool_args(self, tool_name: str, args: Dict) -> str | None:
-        """Validate tool arguments against schema. Returns error message if invalid."""
-        from libercode.tools.teammate_tools import get_teammate_tools
-
-        tools = get_teammate_tools()
-        tool_schema = next((t for t in tools if t["name"] == tool_name), None)
-        if not tool_schema:
-            return None
-
-        schema = tool_schema.get("input_schema", {})
-        properties = schema.get("properties", {})
-
-        errors = []
-        for prop_name, prop_spec in properties.items():
-            if prop_name in args:
-                if "enum" in prop_spec:
-                    if args[prop_name] not in prop_spec["enum"]:
-                        errors.append(
-                            f" - Field '{prop_name}': got '{args[prop_name]}', "
-                            f"expected one of {prop_spec['enum']}"
-                        )
-
-        if errors:
-            return f"Tool '{tool_name}' arguments validation failed:\n" + "\n".join(errors)
-        return None
+        if validation_warning:
+            result = f"{result}\n\n{validation_warning}"
+        return result
 
     def _scan_unclaimed_tasks(self) -> List[Dict]:
         """Scan for unclaimed tasks matching teammate's role."""
