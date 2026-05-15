@@ -18,7 +18,7 @@ from libercode.taskboard.manager import TaskManager
 from libercode.messaging.bus import MessageBus
 from libercode.messaging.serialization import serialize_content
 from libercode.utils.token_tracker import TokenTracker
-from libercode.utils.logging import get_logger, log_task_event, log_agent_event, log_llm_call
+from libercode.utils.logging import get_logger, log_task_event, log_agent_event
 from libercode.ui.output import tprint, format_llm_response
 from libercode.exceptions import LLMInternalError, LLMRateLimitError
 from libercode.core.interrupt_handler import check_cancel, request_cancel, clear_cancel
@@ -140,12 +140,10 @@ class LeadAgent:
                 )
                 duration_ms = int((time.time() - start_time) * 1000)
 
-                log_llm_call(
-                    agent='lead',
-                    model=response.model,
-                    input_tokens=response.usage.input_tokens,
-                    output_tokens=response.usage.output_tokens,
-                    duration_ms=duration_ms
+                self._logger.info(
+                    f"LLM call: model={response.model}, "
+                    f"tokens={response.usage.input_tokens}in/{response.usage.output_tokens}out, "
+                    f"duration={duration_ms}ms"
                 )
 
             except Exception as e:
@@ -228,12 +226,10 @@ class LeadAgent:
                 )
                 duration_ms = int((time.time() - start_time) * 1000)
 
-                log_llm_call(
-                    agent='lead',
-                    model=response.model,
-                    input_tokens=response.usage.input_tokens,
-                    output_tokens=response.usage.output_tokens,
-                    duration_ms=duration_ms
+                self._logger.info(
+                    f"LLM call: model={response.model}, "
+                    f"tokens={response.usage.input_tokens}in/{response.usage.output_tokens}out, "
+                    f"duration={duration_ms}ms"
                 )
 
             except asyncio.CancelledError:
