@@ -318,6 +318,40 @@ class TokenTracker:
 
         return self.format_total_summary(self.get_total_summary())
 
+    def to_list(self) -> List[Dict]:
+        """Serialize all records to a list of dicts for persistence."""
+        result = []
+        for r in self._records:
+            result.append({
+                "caller": r.caller,
+                "timestamp": r.timestamp.isoformat(),
+                "duration_ms": r.duration_ms,
+                "model": r.model,
+                "input_tokens": r.input_tokens,
+                "output_tokens": r.output_tokens,
+                "cache_creation_input_tokens": r.cache_creation_input_tokens,
+                "cache_read_input_tokens": r.cache_read_input_tokens,
+            })
+        return result
+
+    def load_from_list(self, data: List[Dict]) -> None:
+        """Restore records from a list of dicts (from persistence).
+
+        Appends to existing records (does not clear first).
+        """
+        for item in data:
+            record = TokenRecord(
+                caller=item["caller"],
+                timestamp=datetime.fromisoformat(item["timestamp"]),
+                duration_ms=item["duration_ms"],
+                model=item["model"],
+                input_tokens=item.get("input_tokens", 0),
+                output_tokens=item.get("output_tokens", 0),
+                cache_creation_input_tokens=item.get("cache_creation_input_tokens", 0),
+                cache_read_input_tokens=item.get("cache_read_input_tokens", 0),
+            )
+            self._records.append(record)
+
     def reset(self) -> None:
         """Reset all records (for testing)."""
         self._records.clear()

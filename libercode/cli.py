@@ -327,10 +327,12 @@ async def async_repl_loop(lead, message_bus, task_manager, teammate_manager, log
                                 session_manager._current_session = None
                                 session_path = session_manager._get_session_path(session_name)
                                 if session_path.exists():
+                                    meta_path = session_path / "meta.json"
+                                    meta_data = json.loads(meta_path.read_text()) if meta_path.exists() else {}
                                     session_manager._current_session = SessionMeta(
-                                        session_id=summary.get("meta", {}).get("session_id", ""),
+                                        session_id=meta_data.get("session_id", ""),
                                         session_name=session_name,
-                                        created_at=summary.get("meta", {}).get("created_at", ""),
+                                        created_at=meta_data.get("created_at", ""),
                                         updated_at=datetime.now().isoformat(),
                                         save_count=0,
                                         interval_seconds=session_manager._current_interval,
@@ -355,6 +357,8 @@ async def async_repl_loop(lead, message_bus, task_manager, teammate_manager, log
                                     tprint("  Teammate inboxes: restored")
                                 if "team_config" in restored:
                                     tprint("  Team config: restored")
+                                if "token_records" in restored:
+                                    tprint(f"  Token records: {restored['token_records']} restored")
                         except Exception as e:
                             log.error(f"Restore failed: {e}")
                             tprint(f"Restore failed: {e}")

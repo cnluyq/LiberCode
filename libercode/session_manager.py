@@ -19,6 +19,7 @@ import copy
 
 from libercode.utils.logging import get_logger
 from libercode.messaging.serialization import serialize_content
+from libercode.utils.token_tracker import TokenTracker
 
 
 @dataclass
@@ -219,6 +220,19 @@ class SessionManager:
 
         return changed
 
+    def _save_token_records(self, session_path: Path) -> bool:
+        """Save token tracker records to file."""
+        tracker = TokenTracker.get_tracker()
+        records = tracker.to_list()
+        if not records:
+            return False
+
+        token_path = session_path / "token_records.json"
+        data = {"records": records, "saved_at": datetime.now().isoformat()}
+        token_path.write_text(json.dumps(data, indent=2, ensure_ascii=False))
+        self._file_mtimes[str(token_path)] = time.time()
+        return True
+
     def _do_save(self) -> tuple[bool, float]:
         """Perform a save operation. Returns (changed, duration)."""
         if not self._current_session:
@@ -233,6 +247,7 @@ class SessionManager:
         changed = self._save_team_config(session_path) or changed
         changed = self._save_tasks(session_path) or changed
         changed = self._save_teammate_messages(session_path) or changed
+        changed = self._save_token_records(session_path) or changed
 
         if changed:
             self._current_session.save_count += 1
@@ -548,7 +563,21 @@ class SessionRecoveryManager:
                 _logger.error(f"Failed to restore lead messages: {e}")
                 summary["restored"]["lead_messages"] = f"error: {e}"
 
-        # Step 6: Spawn teammates with restored history
+        # Step 6: Restore token records
+        token_src = session_path / "token_records.json"
+        if token_src.exists():
+            try:
+                token_data = json.loads(token_src.read_text())
+                tracker = TokenTracker.get_tracker()
+                tracker.reset()
+                tracker.load_from_list(token_data.get("records", []))
+                summary["restored"]["token_records"] = len(token_data.get("records", []))
+                _logger.info(f"Restored {len(token_data.get('records', []))} token records")
+            except Exception as e:
+                _logger.error(f"Failed to restore token records: {e}")
+                summary["restored"]["token_records"] = f"error: {e}"
+
+        # Step 7: Spawn teammates with restored history
         if teammate_manager:
             teammates_path = session_path / "teammates"
             spawned = []
