@@ -130,7 +130,7 @@ async def async_repl_loop(lead, message_bus, task_manager, teammate_manager, log
             try:
                 query = await loop.run_in_executor(
                     None,
-                    lambda: input_with_cursor_support("\033[36mlibercode >> \033[0m")
+                    lambda: input_with_cursor_support()
                 )
             except (EOFError, KeyboardInterrupt):
                 if interrupt_requested:
