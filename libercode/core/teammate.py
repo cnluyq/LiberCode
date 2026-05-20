@@ -152,6 +152,22 @@ class TeammateAgent:
             if self.pty_file:
                 self.pty_file.close()
 
+    def _handle_inbox_message(self, msg) -> None:
+        """Handle a single inbox message based on its type."""
+        if msg.type == MessageType.USER_INPUT_RESPONSE:
+            req_id = msg.extra.get("request_id", "")
+            self.messages.append({
+                "role": "user",
+                "content": f"<user_input_response request_id=\"{req_id}\">{msg.content}</user_input_response>",
+            })
+            self.messages.append({
+                "role": "assistant",
+                "content": f"Received user input response for request {req_id}.",
+            })
+        else:
+            self.messages.append({"role": "user", "content": json.dumps(msg.to_dict(), ensure_ascii=False)})
+            self.messages.append({"role": "assistant","content": "Noted the inbox message."})
+
     def _run_work_loop(self, sys_prompt: str, output_manager) -> None:
         """Core work/idle loop shared by run() and run_with_history()."""
         while True:
@@ -162,11 +178,10 @@ class TeammateAgent:
 
                 # Check inbox
                 inbox = self.message_bus.read_inbox(self.name)
-                for msg in inbox:
-                    if msg.type == MessageType.SHUTDOWN_REQUEST:
-                        self._logger.info(f"Teammate {self.name} received shutdown request during work")
-
-                    self.messages.append({"role": "user", "content": json.dumps(msg.to_dict(), ensure_ascii=False)})
+                if inbox:
+                    for msg in inbox:
+                        self._logger.info(f"Teammate {self.name} received message<{msg.type}> from {msg.sender} during work")
+                        self._handle_inbox_message(msg)
 
                 # Call LLM
                 self._logger.info(f"round#{round_num} calling LLM ......")
@@ -265,10 +280,8 @@ class TeammateAgent:
                 inbox = self.message_bus.read_inbox(self.name)
                 if inbox:
                     for msg in inbox:
-                        if msg.type == MessageType.SHUTDOWN_REQUEST:
-                            self._logger.info(f"Teammate {self.name} received shutdown request during idle")
-
-                        self.messages.append({"role": "user", "content": json.dumps(msg.to_dict(), ensure_ascii=False)})
+                        self._logger.info(f"Teammate {self.name} received message<{msg.type}> from {msg.sender} during idle")
+                        self._handle_inbox_message(msg)
                         resume = True
 
                 if resume:
@@ -398,9 +411,11 @@ class TeammateAgent:
 
         # Create task prompt
         task_prompt = (
-            f"<auto-claimed>Task #{task['id']}: {task['subject']}\n"
-            f"{task.get('description', '')}</auto-claimed>"
-            f"When the task complete, send message to 'lead' with task-id and status to notify lead to update task status. Then use idle tool to back to idle state</auto-claimed>"
+            f"<auto-claimed>Task #{task['id']}: \n"
+            f"Subject: {task['subject']}\n"
+            f"Description: {task.get('description', '')}\n"
+            f"</auto-claimed>\n"
+            f"Note: When the task complete, send message to 'lead' with task-id and status to notify lead to update task status. Then use idle tool to back to idle state."
         )
 
         # Log task claim

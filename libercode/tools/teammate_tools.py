@@ -64,7 +64,7 @@ def get_teammate_tools() -> list:
         },
         {
             "name": "send_message",
-            "description": "Send message to a teammate.",
+            "description": "Send message to a teammate(mostly to lead).",
             "input_schema": {
                 "type": "object",
                 "properties": {
@@ -128,6 +128,19 @@ def get_teammate_tools() -> list:
                 "type": "object",
                 "properties": {"task_id": {"type": "integer"}},
                 "required": ["task_id"],
+            },
+        },
+        {
+            "name": "request_user_input",
+            "description": "Request user intervention. Use this when you need the user to provide input, confirm an action, authorize an operation, or make a decision that requires human judgment. The request will be forwarded to the lead, and the user's response will be returned to you.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "reason": {"type": "string", "description": "Why user intervention is needed (e.g. 'Need confirmation to deploy to production', 'Need API key for service X')"},
+                    "question": {"type": "string", "description": "The specific question or prompt to present to the user"},
+                    "urgency": {"type": "string", "enum": ["low", "medium", "high"], "description": "How urgently the user needs to respond"},
+                },
+                "required": ["reason", "question"],
             },
         },
     ]
@@ -257,6 +270,34 @@ def create_teammate_tool_handlers(
         task = task_manager.get(kwargs["task_id"])
         return json.dumps(task.to_dict(), indent=2, ensure_ascii=False)
 
+    def handle_request_user_input(**kwargs):
+        import uuid
+
+        request_id = str(uuid.uuid4())[:8]
+        reason = kwargs["reason"]
+        question = kwargs["question"]
+        urgency = kwargs.get("urgency", "medium")
+
+        msg = Message(
+            type=MessageType.USER_INPUT_REQUEST,
+            sender=sender_name,
+            content=question,
+            extra={
+                "request_id": request_id,
+                "reason": reason,
+                "urgency": urgency,
+            },
+        )
+        message_bus.send(msg, to="lead")
+
+        return json.dumps({
+            "request_id": request_id,
+            "status": "forwarded_to_lead",
+            "reason": reason,
+            "question": question,
+            "urgency": urgency,
+        }, ensure_ascii=False)
+
     return {
         "bash": handle_bash,
         "read_file": handle_read_file,
@@ -270,4 +311,5 @@ def create_teammate_tool_handlers(
         "claim_task": handle_claim_task,
         "task_list": handle_task_list,
         "task_get": handle_task_get,
+        "request_user_input": handle_request_user_input,
     }

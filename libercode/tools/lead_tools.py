@@ -202,6 +202,19 @@ def get_lead_tools() -> list:
                 "required": ["name"],
             },
         },
+        {
+            "name": "request_user_input",
+            "description": "Request user intervention. Use this when you need the user to provide input, confirm an action, authorize an operation, or make a decision that requires human judgment. The user's response will be returned to you.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "reason": {"type": "string", "description": "Why user intervention is needed (e.g. 'Need confirmation to deploy to production', 'Need API key for service X')"},
+                    "question": {"type": "string", "description": "The specific question or prompt to present to the user"},
+                    "urgency": {"type": "string", "enum": ["low", "medium", "high"], "description": "How urgently the user needs to respond"},
+                },
+                "required": ["reason", "question"],
+            },
+        },
     ]
 
 
@@ -368,6 +381,22 @@ def create_lead_tool_handlers(
     def handle_drop_teammate(**kwargs):
         return teammate_manager.drop(kwargs["name"])
 
+    def handle_request_user_input(**kwargs):
+        import uuid
+
+        request_id = str(uuid.uuid4())[:8]
+        reason = kwargs["reason"]
+        question = kwargs["question"]
+        urgency = kwargs.get("urgency", "medium")
+
+        return json.dumps({
+            "request_id": request_id,
+            "status": "waiting_for_user",
+            "reason": reason,
+            "question": question,
+            "urgency": urgency,
+        }, ensure_ascii=False)
+
     return {
         "bash": handle_bash,
         "read_file": handle_read_file,
@@ -387,4 +416,5 @@ def create_lead_tool_handlers(
         "shutdown_request": handle_shutdown_request,
         "shutdown_status": handle_shutdown_status,
         "drop_teammate": handle_drop_teammate,
+        "request_user_input": handle_request_user_input,
     }

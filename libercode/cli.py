@@ -406,7 +406,7 @@ async def async_repl_loop(lead, message_bus, task_manager, teammate_manager, log
 
 
 async def run_llm_with_interrupt(lead, message, log):
-    """Run LLM processing with interrupt checking."""
+    """Run LLM processing with interrupt checking and user input request support."""
     clear_cancel()
     lead._inject_agents_md()
     lead.messages.append(message)
@@ -423,7 +423,19 @@ async def run_llm_with_interrupt(lead, message, log):
     global _current_task
     _current_task = task
 
+    loop = asyncio.get_event_loop()
+    from libercode.ui.input_handler import input_with_cursor_support
+
     while not task.done():
+        if lead._user_input_request_id is not None:
+            try:
+                user_response = await loop.run_in_executor(
+                    None,
+                    lambda: input_with_cursor_support()
+                )
+            except (EOFError, KeyboardInterrupt):
+                user_response = "skip"
+            lead.provide_user_input(user_response if user_response.strip() else "skip")
         await asyncio.sleep(0.1)
 
     try:

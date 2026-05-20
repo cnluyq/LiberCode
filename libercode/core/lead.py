@@ -51,11 +51,17 @@ class LeadAgent:
     _agent_counter: int = field(default=0, init=False)
     _logger: Any = field(default=None, init=False)
     _agents_md_injected: bool = field(default=False, init=False)
+    _user_input_event: Any = field(default=None, init=False)
+    _user_input_request_id: Any = field(default=None, init=False)
+    _user_input_response: Any = field(default=None, init=False)
 
     def __post_init__(self):
         """Initialize logger after dataclass init."""
         self._logger = get_logger('libercode.lead', component='lead')
         self._agents_md_injected = False
+        self._user_input_event = asyncio.Event()
+        self._user_input_request_id = None
+        self._user_input_response = None
 
     def _load_agents_md(self) -> Optional[str]:
         """Load AGENTS.md or CLAUDE.md from project root."""
@@ -96,15 +102,45 @@ class LeadAgent:
             inbox = self.message_bus.read_inbox("lead")
             if inbox:
                 self._logger.debug(f"Received {len(inbox)} inbox messages")
-                inbox_data = [msg.to_dict() for msg in inbox]
-                self.messages.append({
-                    "role": "user",
-                    "content": f"<inbox>{json.dumps(inbox_data, indent=2, ensure_ascii=False)}</inbox>",
-                })
-                self.messages.append({
-                    "role": "assistant",
-                    "content": "Noted inbox messages.",
-                })
+                from libercode.messaging.protocol import MessageType, Message
+
+                user_input_msgs = [m for m in inbox if m.type == MessageType.USER_INPUT_REQUEST]
+                other_msgs = [m for m in inbox if m.type != MessageType.USER_INPUT_REQUEST]
+
+                for omsg in other_msgs:
+                    self._logger.info(f"Lead received message<{omsg.type}> from {omsg.sender} during work")
+                    self.messages.append({
+                        "role": "user",
+                        "content": f"<inbox>{json.dumps(omsg.to_dict(), ensure_ascii=False)}</inbox>",
+                    })
+                    self.messages.append({
+                        "role": "assistant",
+                        "content": "Noted the inbox message.",
+                    })
+
+                for umsg in user_input_msgs:
+                    self._logger.info(f"Lead received message<{umsg.type}> from {umsg.sender} during work")
+                    req_id = umsg.extra.get("request_id", "")
+                    reason = umsg.extra.get("reason", "")
+                    question = umsg.content
+                    urgency = umsg.extra.get("urgency", "medium")
+
+                    user_response = await self._prompt_user_input(
+                        request_id=req_id,
+                        reason=reason,
+                        question=question,
+                        urgency=urgency,
+                        header=f"USER INPUT REQUIRED (from {umsg.sender})",
+                    )
+                    user_response = user_response or "skipped"
+
+                    resp_msg = Message(
+                        type=MessageType.USER_INPUT_RESPONSE,
+                        sender="lead",
+                        content=user_response,
+                        extra={"request_id": req_id},
+                    )
+                    self.message_bus.send(resp_msg, to=umsg.sender)
 
             self._logger.info(f"user_input#{self._input_counter} round#{self._agent_counter} calling LLM (async)......")
             start_time = time.time()
@@ -164,11 +200,16 @@ class LeadAgent:
             format_llm_response(response, "team lead")
 
             results = []
+            user_input_request_data = None
             for block in response.content:
                 if block.type == "tool_use":
                     output = self._execute_tool(block.name, block.input)
 
                     self._logger.info(f"Executing tool: {block.name}, result:\n{str(output)}")
+
+                    if block.name == "request_user_input":
+                        user_input_request_data = output
+
                     results.append({
                         "type": "tool_result",
                         "tool_use_id": block.id,
@@ -176,6 +217,76 @@ class LeadAgent:
                     })
 
             self.messages.append({"role": "user", "content": results})
+
+            if user_input_request_data:
+                user_response = await self._wait_for_user_input(user_input_request_data)
+                if user_response is not None:
+                    import json as _json
+                    resp_data = _json.loads(user_input_request_data) if isinstance(user_input_request_data, str) else user_input_request_data
+                    request_id = resp_data.get("request_id", "")
+                    self.messages.append({
+                        "role": "user",
+                        "content": f"<user_input_response request_id=\"{request_id}\">{user_response}</user_input_response>",
+                    })
+
+    async def _prompt_user_input(self, request_id: str, reason: str, question: str, urgency: str = "medium", header: str = "USER INPUT REQUIRED") -> Optional[str]:
+        """Display prompt and wait for user input via CLI.
+
+        Args:
+            request_id: Unique ID for this request
+            reason: Why user intervention is needed
+            question: The question to present to the user
+            urgency: low/medium/high
+            header: Header line for the prompt display
+
+        Returns:
+            User's response text, or None if cancelled
+        """
+        urgency_tag = f"[{urgency.upper()}] " if urgency != "medium" else ""
+        tprint(f"\n{'='*60}")
+        tprint(f"{header} {urgency_tag}")
+        tprint(f"Reason: {reason}")
+        tprint(f"Question: {question}")
+        tprint(f"Request ID: {request_id}")
+        tprint(f"{'='*60}")
+        tprint("Type your response below (or 'skip' to decline):")
+
+        self._user_input_event.clear()
+        self._user_input_request_id = request_id
+        self._user_input_response = None
+
+        await self._user_input_event.wait()
+
+        self._user_input_request_id = None
+        return self._user_input_response
+
+    async def _wait_for_user_input(self, tool_output: str) -> Optional[str]:
+        """Pause the LLM loop and wait for user to provide input.
+
+        Args:
+            tool_output: JSON output from request_user_input tool
+
+        Returns:
+            User's response text, or None if cancelled
+        """
+        import json as _json
+        data = _json.loads(tool_output) if isinstance(tool_output, str) else tool_output
+        return await self._prompt_user_input(
+            request_id=data.get("request_id", ""),
+            reason=data.get("reason", ""),
+            question=data.get("question", ""),
+            urgency=data.get("urgency", "medium"),
+            header="USER INPUT REQUIRED",
+        )
+
+    def provide_user_input(self, response: str) -> None:
+        """Provide user input response from CLI. Called by the REPL loop.
+
+        Args:
+            response: User's response text
+        """
+        self._user_input_response = response
+        self._user_input_event.set()
 
     def _get_system_prompt(self) -> str:
         """Get system prompt for lead agent."""

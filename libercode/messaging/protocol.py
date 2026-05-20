@@ -21,6 +21,8 @@ class MessageType(str, Enum):
     PLAN_APPROVAL_RESPONSE = "plan_approval_response"
     PLAN_APPROVAL_REQUEST = "plan_approval_request"
     SHUTDOWN_BY_SELF = "shutdown_by_self"
+    USER_INPUT_REQUEST = "user_input_request"
+    USER_INPUT_RESPONSE = "user_input_response"
 
 
 @dataclass
