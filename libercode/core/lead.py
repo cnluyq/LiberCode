@@ -109,14 +109,10 @@ class LeadAgent:
 
                 for omsg in other_msgs:
                     self._logger.info(f"Lead received message<{omsg.type}> from {omsg.sender} during work")
+                    self.messages.append({"role": "user", "content": "Note the inbox message"})
                     self.messages.append({
                         "role": "user",
-                        "content": f"<inbox>{json.dumps(omsg.to_dict(), ensure_ascii=False)}</inbox>",
-                    })
-                    self.messages.append({
-                        "role": "assistant",
-                        "content": "Noted the inbox message.",
-                    })
+                        "content": f"<inbox>{json.dumps(omsg.to_dict(), ensure_ascii=False)}</inbox>"})
 
                 for umsg in user_input_msgs:
                     self._logger.info(f"Lead received message<{umsg.type}> from {umsg.sender} during work")
@@ -194,7 +190,7 @@ class LeadAgent:
             self.messages.append({"role": "assistant", "content": response.content})
 
             if response.stop_reason != "tool_use":
-                self._logger.debug("LLM loop completed without tool use")
+                self._logger.debug(f"LLM loop returned as stop_reason ({response.stop_reason}) is not 'tool_use'.")
                 return
 
             format_llm_response(response, "team lead")

@@ -309,7 +309,7 @@ Contributions welcome! Please ensure:
 
 ## Acknowledgments
 
-Assisted-by AI
+Coding assisted-by AI
 
 /init and /review prompts are referred from opencode project
 

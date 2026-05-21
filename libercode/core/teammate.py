@@ -156,17 +156,13 @@ class TeammateAgent:
         """Handle a single inbox message based on its type."""
         if msg.type == MessageType.USER_INPUT_RESPONSE:
             req_id = msg.extra.get("request_id", "")
+            self.messages.append({"role": "user", "content": "Note the inbox message"})
             self.messages.append({
                 "role": "user",
-                "content": f"<user_input_response request_id=\"{req_id}\">{msg.content}</user_input_response>",
-            })
-            self.messages.append({
-                "role": "assistant",
-                "content": f"Received user input response for request {req_id}.",
-            })
+                "content": f"<inbox><user_input_response request_id=\"{req_id}\">{msg.content}</user_input_response></inbox>"})
         else:
-            self.messages.append({"role": "user", "content": json.dumps(msg.to_dict(), ensure_ascii=False)})
-            self.messages.append({"role": "assistant","content": "Noted the inbox message."})
+            self.messages.append({"role": "user", "content": "Note the inbox message"})
+            self.messages.append({"role": "user", "content": f"<inbox>{json.dumps(msg.to_dict(), ensure_ascii=False)}</inbox>"})
 
     def _run_work_loop(self, sys_prompt: str, output_manager) -> None:
         """Core work/idle loop shared by run() and run_with_history()."""
@@ -235,6 +231,7 @@ class TeammateAgent:
 
                 # Check if done
                 if response.stop_reason != "tool_use":
+                    self._logger.info(f"Teammate {self.name} llm loop go to idle as stop_reason ({response.stop_reason}) is not 'tool_use'.")
                     break
 
                 format_llm_response(response, self.name)
@@ -432,6 +429,5 @@ class TeammateAgent:
             self.messages.insert(1, {"role": "assistant", "content": f"I am {self.name}. Continuing."})
 
         self.messages.append({"role": "user", "content": task_prompt})
-        self.messages.append({"role": "assistant", "content": f"Claimed task #{task['id']}. Working on it."})
 
         return True
