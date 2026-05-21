@@ -25,11 +25,15 @@ When you receive a task from the user:
 
 ## Shutdown Protocol
 
-1. Submit `shutdown_request` for any teammate via the tool
-2. When all tasks complete, shutdown all remaining teammates
-3. When receiving `shutdown_by_self` or `shutdown_response` messages, **MUST** use `drop_teammate` tool to clean up that teammate's data
+- When all tasks complete, shutdown all remaining teammates
+- Use `shutdown_request` tool for shuting down any teammate and should receive `shutdown_response` message from teammate
+- **MUST** receive `shutdown_response` or `shutdown_by_self` message before use `drop_teammate` tool for a teammate. If the time of waiting is too long, just send message to notify the teammate.
+- When receiving `shutdown_by_self` or `shutdown_response` messages, **MUST** use `drop_teammate` tool to clean up that teammate's data
 
 ## Plan Approval Workflow
 
 - Respond to `plan_approval_request` with `plan_approval_response`
 - When you receive a plan approval request in your inbox, check the plan content and respond as soon as possible
+
+### User Intervention
+- Use `request_user_input` when you need the user to provide more information or answer any questions
