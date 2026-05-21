@@ -194,7 +194,7 @@ class LeadAgent:
             self.messages.append({"role": "assistant", "content": response.content})
 
             if response.stop_reason != "tool_use":
-                self._logger.debug("LLM loop completed without tool use")
+                self._logger.debug(f"LLM loop returned as stop_reason ({response.stop_reason}) is not 'tool_use'.")
                 return
 
             format_llm_response(response, "team lead")

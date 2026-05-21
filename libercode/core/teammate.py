@@ -235,6 +235,7 @@ class TeammateAgent:
 
                 # Check if done
                 if response.stop_reason != "tool_use":
+                    self._logger.info(f"Teammate {self.name} llm loop go to idle as stop_reason ({response.stop_reason}) is not 'tool_use'.")
                     break
 
                 format_llm_response(response, self.name)
