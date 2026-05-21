@@ -104,7 +104,7 @@ libercode
 LiberCode - AI Agent for Teams
 Type 'q' or 'exit' to quit
 
-libercode >> 任务：使用C语言创建简单计算器。如果需要，可以分解成多个子任务，并创建多个队员来完成。
+[LiberCode] ❯❯ 任务：使用C语言创建简单计算器。如果需要，可以分解成多个子任务，并创建多个队员来完成。
 ```
 
 ### Log File
@@ -115,12 +115,12 @@ libercode >> 任务：使用C语言创建简单计算器。如果需要，可以
 ### REPL Commands
 
 ```
-libercode >> Create a Python script to analyze CSV files
-libercode >> /team # List all teammates
-libercode >> /tasks # Show task board
-libercode >> /inbox # Check lead's messages
-libercode >> /tokens # Show token usage stats
-libercode >> q # Quit
+[LiberCode] ❯❯ Create a Python script to analyze CSV files
+[LiberCode] ❯❯ /team # List all teammates
+[LiberCode] ❯❯ /tasks # Show task board
+[LiberCode] ❯❯ /inbox # Check lead's messages
+[LiberCode] ❯❯ /tokens # Show token usage stats
+[LiberCode] ❯❯ q # Quit
 ```
 
 ### Multi-line Input
@@ -132,7 +132,7 @@ LiberCode supports multi-line user input with the following features:
 Type `\` at the end of a line and press Enter to continue on the next line:
 
 ```
-libercode >> Create a program that \
+[LiberCode] ❯❯ Create a program that \
             reads from a file \
             and processes the data
 ```
@@ -144,7 +144,7 @@ Press Enter directly (without `\`) to submit.
 Copy multi-line text from clipboard and paste with Ctrl+V. The content will be inserted without auto-submit. Press Enter to submit.
 
 ```
-libercode >> hello how are you?
+[LiberCode] ❯❯ hello how are you?
             what can you do for me?
 ```
 
@@ -153,12 +153,12 @@ libercode >> hello how are you?
 - **Left/Right Arrow Keys**: Move cursor within the input text
 - **Backspace**: Delete character before cursor
 - **Enter**: Submit input (or continue if line ends with `\`)
-libercode >> Create a Python script to analyze CSV files
-libercode >> /team          # List all teammates
-libercode >> /tasks         # Show task board
-libercode >> /inbox         # Check lead's messages
-libercode >> /tokens        # Show token usage stats
-libercode >> q              # Quit
+[LiberCode] ❯❯ Create a Python script to analyze CSV files
+[LiberCode] ❯❯ /team          # List all teammates
+[LiberCode] ❯❯ /tasks         # Show task board
+[LiberCode] ❯❯ /inbox         # Check lead's messages
+[LiberCode] ❯❯ /tokens        # Show token usage stats
+[LiberCode] ❯❯ q              # Quit
 ```
 
 ### Example Workflow
