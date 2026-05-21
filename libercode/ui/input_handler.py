@@ -4,9 +4,11 @@ Features:
 1. Manual multi-line input: type a special char (e.g., \) at end of line to continue
 2. Paste handling: Ctrl+V pastes content without auto-submit, press Enter to submit
 3. Cursor navigation: < and > keys move within input, Backspace deletes char
+4. ESC interrupt: double-tap ESC to cancel current LLM operation
 """
 
 import sys
+import time
 from typing import Optional, Callable
 from prompt_toolkit import Application
 from prompt_toolkit.buffer import Buffer
@@ -16,6 +18,25 @@ from prompt_toolkit.layout.containers import Window
 from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.layout.layout import Layout
 from prompt_toolkit.styles import Style
+from prompt_toolkit.formatted_text import FormattedText
+
+PROMPT_STYLE = Style.from_dict({
+    'prompt.bracket': 'bold #cccccc',
+    'prompt.name': 'bold ansibrightgreen',
+    'prompt.separator': 'bold #cccccc',
+    'prompt.arrow': 'bold ansibrightcyan',
+})
+
+PROMPT_FORMATTED = FormattedText([
+    ('class:prompt.bracket', '['),
+    ('class:prompt.name', 'LiberCode'),
+    ('class:prompt.separator', ']'),
+    ('class:prompt.arrow', ' \u276f\u276f '),
+])
+
+PROMPT_PLAIN = '[LiberCode] \u276f\u276f'
+
+PROMPT_ANSI = '\033[1;97m[\033[0m\033[1;92mLiberCode\033[0m\033[1;97m]\033[0m\033[1;96m \u276f\u276f \033[0m'
 
 
 class MultiLineInput:
@@ -23,11 +44,11 @@ class MultiLineInput:
     
     def __init__(
         self,
-        prompt: str = "libercode >> ",
+        prompt=None,
         multiline_char: str = "\\",
         on_submit: Optional[Callable[[str], None]] = None,
     ):
-        self.prompt = prompt
+        self.prompt = prompt if prompt is not None else PROMPT_FORMATTED
         self.multiline_char = multiline_char
         self.on_submit = on_submit
         self._input_buffer: list[str] = []
@@ -89,7 +110,7 @@ class MultiLineInput:
             message=self.prompt,
             history=history,
             key_bindings=self._kb,
-            buffer=self._create_buffer(),
+            style=PROMPT_STYLE,
         )
         
         try:
@@ -106,22 +127,23 @@ class SimpleMultiLineInput:
     
     def __init__(
         self,
-        prompt: str = "libercode >> ",
+        prompt=None,
         multiline_char: str = "\\",
     ):
-        self.prompt = prompt
+        self.prompt = prompt if prompt is not None else PROMPT_PLAIN
+        self._plain_prompt = _strip_ansi(self.prompt) if prompt is not None else PROMPT_PLAIN
         self.multiline_char = multiline_char
-    
+
     def read_input(self) -> str:
         """Read input with multi-line support."""
         lines: list[str] = []
-        
+
         while True:
             try:
                 if not lines:
                     line = input(self.prompt)
                 else:
-                    line = input(" " * len(self.prompt))
+                    line = input(" " * len(self._plain_prompt))
             except (EOFError, KeyboardInterrupt):
                 raise
             
@@ -129,12 +151,10 @@ class SimpleMultiLineInput:
                 lines.append(line[:-1])
             else:
                 lines.append(line)
-                break
-        
         return "\n".join(lines)
 
 
-def get_input(prompt: str = "libercode >> ", multiline_char: str = "\\") -> str:
+def get_input(prompt=None, multiline_char: str = "\\") -> str:
     """Get user input with multi-line support.
     
     Usage:
@@ -152,7 +172,7 @@ def get_input(prompt: str = "libercode >> ", multiline_char: str = "\\") -> str:
 
 
 def input_with_cursor_support(
-    prompt: str = "libercode >> ",
+    prompt=None,
     multiline_char: str = "\\",
 ) -> str:
     """Get user input with multi-line support using prompt_toolkit."""
@@ -160,30 +180,32 @@ def input_with_cursor_support(
         from prompt_toolkit import PromptSession
         from prompt_toolkit.key_binding import KeyBindings
         from prompt_toolkit.keys import Keys
-        
-        clean_prompt = _strip_ansi(prompt)
-        
+
+        use_formatted = prompt is None
+        message = PROMPT_FORMATTED if use_formatted else _strip_ansi(prompt)
+        style = PROMPT_STYLE if use_formatted else None
+
         kb = KeyBindings()
         result = {"text": ""}
-        
+
         @kb.add(Keys.Left)
         def move_left(event):
             buf = event.app.current_buffer
             if buf.cursor_position > 0:
                 buf.cursor_position -= 1
-        
+
         @kb.add(Keys.Right)
         def move_right(event):
             buf = event.app.current_buffer
             if buf.cursor_position < len(buf.text):
                 buf.cursor_position += 1
-        
+
         @kb.add(Keys.Enter)
         def submit(event):
             app = event.app
             buf = app.current_buffer
             text = buf.text
-            
+
             if text.endswith(multiline_char):
                 buf.text = text + "\n"
                 buf.cursor_position = len(buf.text)
@@ -191,18 +213,20 @@ def input_with_cursor_support(
                 clean_text = text.replace(multiline_char, "")
                 result["text"] = clean_text
                 app.exit()
-        
+
         session = PromptSession(
-            message=clean_prompt,
+            message=message,
             key_bindings=kb,
+            style=style,
         )
-        
+
         session.prompt()
-        
+
         return result["text"]
-        
+
     except ImportError:
-        return _simple_multiline_input(prompt, multiline_char)
+        fallback_prompt = PROMPT_ANSI if prompt is None else prompt
+        return _simple_multiline_input(fallback_prompt, multiline_char)
 
 
 def _strip_ansi(text: str) -> str:
@@ -214,20 +238,21 @@ def _strip_ansi(text: str) -> str:
 def _simple_multiline_input(prompt: str, multiline_char: str = "\\") -> str:
     """Fallback simple multi-line input without prompt_toolkit."""
     lines: list[str] = []
-    
+    plain_prompt = _strip_ansi(prompt)
+
     while True:
         try:
             if not lines:
                 line = input(prompt)
             else:
-                line = input(" " * len(prompt))
+                line = input(" " * len(plain_prompt))
         except (EOFError, KeyboardInterrupt):
             raise
-        
+
         if line.endswith(multiline_char):
             lines.append(line[:-1])
         else:
             lines.append(line)
             break
-    
+
     return "\n".join(lines)

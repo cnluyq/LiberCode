@@ -92,7 +92,7 @@ class JsonFormatter(logging.Formatter):
         if record.exc_info:
             log_obj['exception'] = self.formatException(record.exc_info)
 
-        return json.dumps(log_obj)
+        return json.dumps(log_obj, ensure_ascii=False)
 
 
 class ContextFilter(logging.Filter):
@@ -297,7 +297,7 @@ def log_task_event(task_id: int, event: str, details: Dict[str, Any] = None) -> 
     extra = {'task_id': task_id}
     msg = f"Task #{task_id} - {event}"
     if details:
-        msg += f" - {json.dumps(details)}"
+        msg += f" - {json.dumps(details, ensure_ascii=False)}"
     logger.info(msg, extra=extra)
 
 
@@ -307,7 +307,7 @@ def log_agent_event(teammate: str, event: str, details: Dict[str, Any] = None) -
     extra = {'teammate': teammate}
     msg = f"Agent '{teammate}' - {event}"
     if details:
-        msg += f" - {json.dumps(details)}"
+        msg += f" - {json.dumps(details, ensure_ascii=False)}"
     logger.info(msg, extra=extra)
 
 

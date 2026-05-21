@@ -202,6 +202,19 @@ def get_lead_tools() -> list:
                 "required": ["name"],
             },
         },
+        {
+            "name": "request_user_input",
+            "description": "Request user intervention. Use this when you need the user to provide input, confirm an action, authorize an operation, or make a decision that requires human judgment. The user's response will be returned to you.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "reason": {"type": "string", "description": "Why user intervention is needed (e.g. 'Need confirmation to deploy to production', 'Need API key for service X')"},
+                    "question": {"type": "string", "description": "The specific question or prompt to present to the user"},
+                    "urgency": {"type": "string", "enum": ["low", "medium", "high"], "description": "How urgently the user needs to respond"},
+                },
+                "required": ["reason", "question"],
+            },
+        },
     ]
 
 
@@ -250,7 +263,7 @@ def create_lead_tool_handlers(
 
     def handle_task_create(**kwargs):
         task = task_manager.create(kwargs["subject"], kwargs.get("description", ""), kwargs["required_role"], kwargs["assigned_to"])
-        return json.dumps(task.to_dict(), indent=2)
+        return json.dumps(task.to_dict(), indent=2, ensure_ascii=False)
 
     def handle_task_update(**kwargs):
         from libercode.taskboard.models import TaskStatus
@@ -267,18 +280,19 @@ def create_lead_tool_handlers(
             required_role=kwargs.get("required_role"),
             assigned_to=kwargs.get("assigned_to"),
         )
-        return json.dumps(task.to_dict(), indent=2)
+        return json.dumps(task.to_dict(), indent=2, ensure_ascii=False)
 
     def handle_task_list(**kwargs):
         return task_manager.list_all()
 
     def handle_task_get(**kwargs):
         task = task_manager.get(kwargs["task_id"])
-        return json.dumps(task.to_dict(), indent=2)
+        return json.dumps(task.to_dict(), indent=2, ensure_ascii=False)
 
     def handle_spawn_teammate(**kwargs):
+        prompt_message={"role": "user", "content": kwargs["prompt"]}
         return teammate_manager.spawn(
-            kwargs["name"], kwargs["role"], kwargs["prompt"]
+            kwargs["name"], kwargs["role"], prompt_message
         )
 
     def handle_list_teammates(**kwargs):
@@ -313,7 +327,7 @@ def create_lead_tool_handlers(
                     with _tracker_lock:
                         if req_id in _shutdown_requests:
                             _shutdown_requests[req_id]["status"] = "approved" if msg.extra.get("approve") else "rejected"
-        return json.dumps([m.to_dict() for m in messages], indent=2)
+        return json.dumps([m.to_dict() for m in messages], indent=2, ensure_ascii=False)
 
     def handle_broadcast(**kwargs):
         return message_bus.broadcast(
@@ -357,15 +371,31 @@ def create_lead_tool_handlers(
     def handle_plan_list_pending(**kwargs):
         with _tracker_lock:
             pending = {k: v for k, v in _plan_requests.items() if v.get("status") == "pending"}
-            return json.dumps(pending, indent=2) if pending else "No pending plan requests"
+            return json.dumps(pending, indent=2, ensure_ascii=False) if pending else "No pending plan requests"
 
     def handle_shutdown_status(**kwargs):
         request_id = kwargs.get("request_id", "")
         with _tracker_lock:
-            return json.dumps(_shutdown_requests.get(request_id, {"error": "not found"}))
+            return json.dumps(_shutdown_requests.get(request_id, {"error": "not found"}), ensure_ascii=False)
 
     def handle_drop_teammate(**kwargs):
         return teammate_manager.drop(kwargs["name"])
+
+    def handle_request_user_input(**kwargs):
+        import uuid
+
+        request_id = str(uuid.uuid4())[:8]
+        reason = kwargs["reason"]
+        question = kwargs["question"]
+        urgency = kwargs.get("urgency", "medium")
+
+        return json.dumps({
+            "request_id": request_id,
+            "status": "waiting_for_user",
+            "reason": reason,
+            "question": question,
+            "urgency": urgency,
+        }, ensure_ascii=False)
 
     return {
         "bash": handle_bash,
@@ -386,4 +416,5 @@ def create_lead_tool_handlers(
         "shutdown_request": handle_shutdown_request,
         "shutdown_status": handle_shutdown_status,
         "drop_teammate": handle_drop_teammate,
+        "request_user_input": handle_request_user_input,
     }

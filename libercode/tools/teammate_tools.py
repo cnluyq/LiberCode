@@ -64,7 +64,7 @@ def get_teammate_tools() -> list:
         },
         {
             "name": "send_message",
-            "description": "Send message to a teammate.",
+            "description": "Send message to a teammate(mostly to lead).",
             "input_schema": {
                 "type": "object",
                 "properties": {
@@ -130,6 +130,19 @@ def get_teammate_tools() -> list:
                 "required": ["task_id"],
             },
         },
+        {
+            "name": "request_user_input",
+            "description": "Request user intervention. Use this when you need the user to provide input, confirm an action, authorize an operation, or make a decision that requires human judgment. The request will be forwarded to the lead, and the user's response will be returned to you.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "reason": {"type": "string", "description": "Why user intervention is needed (e.g. 'Need confirmation to deploy to production', 'Need API key for service X')"},
+                    "question": {"type": "string", "description": "The specific question or prompt to present to the user"},
+                    "urgency": {"type": "string", "enum": ["low", "medium", "high"], "description": "How urgently the user needs to respond"},
+                },
+                "required": ["reason", "question"],
+            },
+        },
     ]
 
 
@@ -182,7 +195,7 @@ def create_teammate_tool_handlers(
 
     def handle_read_inbox(**kwargs):
         messages = message_bus.read_inbox(sender_name)
-        return json.dumps([m.to_dict() for m in messages], indent=2)
+        return json.dumps([m.to_dict() for m in messages], indent=2, ensure_ascii=False)
 
     def handle_shutdown_response(**kwargs):
         msg = Message(
@@ -219,43 +232,71 @@ def create_teammate_tool_handlers(
         import uuid
 
         if not teammate:
-            return json.dumps({"error": "Teammate context not available"})
+            return json.dumps({"error": "Teammate context not available"}, ensure_ascii=False)
         try:
             task_id = kwargs["task_id"]
             task = task_manager.get(task_id)
             task_data = task.to_dict()
 
             if task_data.get("status") != "pending":
-                return json.dumps({"error": f"Task is not pending (status: {task_data.get('status')})"})
+                return json.dumps({"error": f"Task is not pending (status: {task_data.get('status')})"}, ensure_ascii=False)
 
             if task_data.get("owner"):
-                return json.dumps({"error": f"Task already claimed by {task_data.get('owner')}"})
+                return json.dumps({"error": f"Task already claimed by {task_data.get('owner')}"}, ensure_ascii=False)
 
             if task_data.get("blockedBy"):
-                return json.dumps({"error": f"Task is blocked by {task_data.get('blockedBy')}"})
+                return json.dumps({"error": f"Task is blocked by {task_data.get('blockedBy')}"}, ensure_ascii=False)
 
             assigned_to = task_data.get("assigned_to")
             if assigned_to and assigned_to != teammate.name:
-                return json.dumps({"error": f"Task is assigned to {assigned_to}"})
+                return json.dumps({"error": f"Task is assigned to {assigned_to}"}, ensure_ascii=False)
 
             required_role = task_data.get("required_role", "")
             if required_role and required_role != teammate.role:
-                return json.dumps({"error": f"Role mismatch. Task requires {required_role}, you are {teammate.role}"})
+                return json.dumps({"error": f"Role mismatch. Task requires {required_role}, you are {teammate.role}"}, ensure_ascii=False)
 
             success = teammate._claim_task(task_data)
             if success:
-                return json.dumps({"success": True, "message": f"Claimed task #{task_id}"})
+                return json.dumps({"success": True, "message": f"Claimed task #{task_id}"}, ensure_ascii=False)
             else:
-                return json.dumps({"error": "Failed to claim task"})
+                return json.dumps({"error": "Failed to claim task"}, ensure_ascii=False)
         except Exception as e:
-            return json.dumps({"error": str(e)})
+            return json.dumps({"error": str(e)}, ensure_ascii=False)
 
     def handle_task_list(**kwargs):
         return task_manager.list_all()
 
     def handle_task_get(**kwargs):
         task = task_manager.get(kwargs["task_id"])
-        return json.dumps(task.to_dict(), indent=2)
+        return json.dumps(task.to_dict(), indent=2, ensure_ascii=False)
+
+    def handle_request_user_input(**kwargs):
+        import uuid
+
+        request_id = str(uuid.uuid4())[:8]
+        reason = kwargs["reason"]
+        question = kwargs["question"]
+        urgency = kwargs.get("urgency", "medium")
+
+        msg = Message(
+            type=MessageType.USER_INPUT_REQUEST,
+            sender=sender_name,
+            content=question,
+            extra={
+                "request_id": request_id,
+                "reason": reason,
+                "urgency": urgency,
+            },
+        )
+        message_bus.send(msg, to="lead")
+
+        return json.dumps({
+            "request_id": request_id,
+            "status": "forwarded_to_lead",
+            "reason": reason,
+            "question": question,
+            "urgency": urgency,
+        }, ensure_ascii=False)
 
     return {
         "bash": handle_bash,
@@ -270,4 +311,5 @@ def create_teammate_tool_handlers(
         "claim_task": handle_claim_task,
         "task_list": handle_task_list,
         "task_get": handle_task_get,
+        "request_user_input": handle_request_user_input,
     }

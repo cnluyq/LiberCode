@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 from dataclasses import dataclass
 from dotenv import load_dotenv
+from anthropic import AsyncAnthropic
 
 from libercode.exceptions import ConfigurationError
 
@@ -36,6 +37,11 @@ class Config:
     idle_timeout: int
     debug: bool
 
+    # Session auto-save parameters
+    session_auto_save: bool
+    session_auto_save_interval: float
+    session_dir: Path
+
     def __init__(self, env_file: str | None = None):
         """
         Initialize configuration from environment.
@@ -63,9 +69,17 @@ class Config:
         self.idle_timeout = 60*60*12  # seconds
         self.debug = os.getenv("LIBERCODE_DEBUG", "false").lower() == "true"
 
+        # Session auto-save parameters
+        self.session_auto_save = os.getenv("LIBERCODE_SESSION_AUTO_SAVE", "true").lower() == "true"
+        self.session_auto_save_interval = float(os.getenv("LIBERCODE_SESSION_INTERVAL", "1.0"))
+        self.session_dir = self.workdir / ".libercode" / "sessions"
+
         # Handle base_url side effect from original code
         if self.base_url:
             os.environ.pop("ANTHROPIC_AUTH_TOKEN", None)
+
+        # Initialize async client for interruptible LLM calls
+        self.async_client = AsyncAnthropic(api_key=self.api_key, base_url=self.base_url)
 
     def _get_required(self, key: str) -> str:
         """Get required environment variable or raise ConfigurationError"""

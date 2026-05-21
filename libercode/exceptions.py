@@ -47,6 +47,11 @@ class PathEscapeError(ToolError):
     pass
 
 
+class ToolInputError(ToolError):
+    """Tool input validation failed (missing/wrong fields)"""
+    pass
+
+
 # Task management exceptions
 class TaskError(LiberCodeError):
     """Task operation errors"""

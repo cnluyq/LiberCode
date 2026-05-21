@@ -63,6 +63,10 @@ libercode/
 git clone <repository-url>
 cd LiberCode
 
+#Create python virtual environment
+python3 -m venv venv
+source venv/bin/activate
+
 # Install dependencies
 pip install anthropic python-dotenv
 
