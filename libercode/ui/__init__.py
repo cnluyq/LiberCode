@@ -17,6 +17,7 @@ from libercode.ui.tmux import (
     close_tmux_pane,
     get_pane_by_tty,
 )
+from libercode.ui.status_pane import StatusPane
 
 __all__ = [
     # Output management
@@ -33,4 +34,6 @@ __all__ = [
     "create_balanced_pane",
     "close_tmux_pane",
     "get_pane_by_tty",
+    # Status pane
+    "StatusPane",
 ]

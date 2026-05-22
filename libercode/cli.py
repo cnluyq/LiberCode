@@ -2,6 +2,7 @@
 
 Provides REPL interface for user interaction.
 """
+import os
 import subprocess
 import asyncio
 import json
@@ -22,6 +23,8 @@ from libercode.core.interrupt_handler import request_cancel, clear_cancel
 from libercode.utils.logging import setup_logging, get_logger
 from libercode.utils.token_tracker import TokenTracker
 from libercode.ui.output import tprint
+from libercode.ui.status_pane import StatusPane
+from libercode.ui import is_tmux_available
 from libercode.session_manager import SessionManager, AutoSaver, SessionRecoveryManager, SessionMeta
 
 _current_task = None
@@ -86,6 +89,18 @@ def main():
     auto_saver = AutoSaver(session_manager, initial_interval=config.session_auto_save_interval)
     log.info("Session manager initialized")
 
+    status_pane = None
+    status_refresh = float(os.getenv("LIBERCODE_STATUS_REFRESH", "5.0"))
+    if status_refresh > 0 and is_tmux_available():
+        status_pane = StatusPane(
+            task_manager=task_manager,
+            teammate_manager=teammate_manager,
+            lead=lead,
+            refresh_interval=status_refresh,
+        )
+        status_pane.start()
+        log.info(f"Status pane started (refresh={status_refresh}s)")
+
     tprint("LiberCode - AI Agent for Teams")
     tprint("Type 'q' or 'exit' to quit")
     tprint("Press Ctrl+C to interrupt LLM processing")
@@ -93,10 +108,12 @@ def main():
 
     try:
         if config.session_auto_save:
-            asyncio.run(async_repl_loop(lead, message_bus, task_manager, teammate_manager, log, auto_saver, session_manager))
+            asyncio.run(async_repl_loop(lead, message_bus, task_manager, teammate_manager, log, auto_saver, session_manager, status_pane))
         else:
-            asyncio.run(async_repl_loop(lead, message_bus, task_manager, teammate_manager, log, None, None))
+            asyncio.run(async_repl_loop(lead, message_bus, task_manager, teammate_manager, log, None, None, status_pane))
     except KeyboardInterrupt:
+        if status_pane:
+            status_pane.stop()
         tprint("\nGoodbye!")
         log.info("LiberCode CLI shutting down")
         return 0
@@ -105,7 +122,7 @@ def main():
     return 0
 
 
-async def async_repl_loop(lead, message_bus, task_manager, teammate_manager, log, auto_saver=None, session_manager=None):
+async def async_repl_loop(lead, message_bus, task_manager, teammate_manager, log, auto_saver=None, session_manager=None, status_pane=None):
     """Async REPL loop with interrupt support."""
     from libercode.ui.input_handler import input_with_cursor_support
 
@@ -402,6 +419,8 @@ async def async_repl_loop(lead, message_bus, task_manager, teammate_manager, log
     finally:
         if auto_saver:
             await auto_saver.stop()
+        if status_pane:
+            status_pane.stop()
         signal.signal(signal.SIGINT, previous_handler)
 
 
