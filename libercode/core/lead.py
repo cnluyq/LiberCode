@@ -54,6 +54,7 @@ class LeadAgent:
     _user_input_event: Any = field(default=None, init=False)
     _user_input_request_id: Any = field(default=None, init=False)
     _user_input_response: Any = field(default=None, init=False)
+    real_time_model_id: str = ""
 
     def __post_init__(self):
         """Initialize logger after dataclass init."""
@@ -148,6 +149,7 @@ class LeadAgent:
                     tools=self._get_tools(),
                     max_tokens=8000,
                 )
+                self.real_time_model_id = response.model
                 duration_ms = int((time.time() - start_time) * 1000)
 
                 self._logger.info(

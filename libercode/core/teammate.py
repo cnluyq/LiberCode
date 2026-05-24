@@ -52,6 +52,7 @@ class TeammateAgent:
     _logger: Any = field(default=None, init=False)
     _should_shutdown: bool = False
     _agents_md_injected: bool = False
+    real_time_model_id: str = ""
 
     def _load_agents_md(self) -> Optional[str]:
         """Load AGENTS.md or CLAUDE.md from project root."""
@@ -190,6 +191,7 @@ class TeammateAgent:
                         tools=self._get_tools(),
                         max_tokens=8000,
                     )
+                    self.real_time_model_id = response.model
                     duration_ms = int((time.time() - start_time) * 1000)
 
                     self._logger.info(

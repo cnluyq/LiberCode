@@ -84,7 +84,7 @@ pip uninstall libercode
 ```bash
 export LLM_API_KEY=<your-api-key>
 export MODEL_ID=<model_id>
-export LLM_BASE_URL=<llm_provider_url> # Base URL (optional for anthropic models; required for other anthropic-compatible providers or local proxy/router, claude-code-router as example)
+export LLM_BASE_URL=<llm_provider_url> # Base URL (optional for anthropic models; required for other anthropic-compatible providers)
 #such as https://api.deepseek.com/anthropic, http://127.0.0.1:3456 for ccr, etc.
 
 export LIBERCODE_DEBUG=true  #set debug mode
@@ -100,7 +100,7 @@ tmux new-session -s LiberCode "libercode; echo 'press enter to exit...'; read"
 libercode
 
 #example：
-[user@localhost ~]tmux new-session -s LiberCode "libercode; echo 'press enter to exit...'; read"
+[user@localhost ~] tmux new-session -s LiberCode "libercode; echo 'press enter to exit...'; read"
 LiberCode - AI Agent for Teams
 Type 'q' or 'exit' to quit
 
@@ -307,9 +307,8 @@ Contributions welcome! Please ensure:
 3. Exception handling with custom exceptions
 4. Backward compatibility with existing APIs
 
-## Acknowledgments
+## Notes
 
 Coding assisted-by AI
-
 /init and /review prompts are referred from opencode project
-
+Test and run on Linux. May be some issue on MacOS for status pane output, disable it by 'export LIBERCODE_STATUS_REFRESH=0.0'

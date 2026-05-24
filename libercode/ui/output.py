@@ -124,9 +124,12 @@ class OutputManager:
             content = f"{prefix}{content}{suffix}"
 
         line = content + end
-        out.write(line)
-        if flush:
-            out.flush()
+        try:
+            out.write(line)
+            if flush:
+                out.flush()
+        except OSError:
+            pass
 
     @staticmethod
     def tprint_simple(*args, **kwargs) -> None:
@@ -152,9 +155,12 @@ class OutputManager:
 
         # Build output string
         line = sep.join(str(arg) for arg in args) + end
-        out.write(line)
-        if flush:
-            out.flush()
+        try:
+            out.write(line)
+            if flush:
+                out.flush()
+        except OSError:
+            pass
 
 # Global function for convenience
 tprint = OutputManager.tprint
