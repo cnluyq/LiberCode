@@ -311,5 +311,7 @@ Contributions welcome! Please ensure:
 ## Notes
 
 Coding assisted-by AI
+
 /init and /review prompts are referred from opencode project
+
 Test and run on Linux. May be some issue on MacOS for status pane output, disable it by 'export LIBERCODE_STATUS_REFRESH=0.0'
