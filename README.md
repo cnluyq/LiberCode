@@ -3,6 +3,7 @@
 **An AI Agent for Real Tasks with Teams**
 
 LiberCode is a multi-agent system that orchestrates autonomous AI teammates to collaboratively execute real-world tasks. Built on Anthropic's Claude API, it features a lead agent that manages task decomposition, teammate spawning, and workflow coordination.
+![Uploading efb644b220bd0662357798c2bc32609e.png…]()
 
 ## Features
 
