@@ -68,7 +68,7 @@ python3 -m venv venv
 source venv/bin/activate
 
 # Install dependencies
-pip install anthropic python-dotenv
+pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 
 # Install LiberCode
 pip install .
