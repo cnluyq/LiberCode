@@ -276,30 +276,6 @@ Agents communicate via JSONL inbox files in `.team/inbox/`:
 - Teammates focus on execution
 - Enables parallel autonomous work
 
-## Roadmap
-
-- [ ] Git worktree integration for isolated task execution
-- [ ] Web UI for monitoring and control
-- [ ] Enhanced error recovery and retry logic
-- [ ] Task prioritization and deadline management
-- [ ] Teammate skill specialization
-- [ ] Integration testing framework
-
-## Comparison with Original Version
-
-The refactored version maintains all functionality while providing:
-
-| Aspect | Original | Refactored |
-|--------|----------|------------|
-| Lines of Code | ~970 (single file) | ~2800 (29 files) |
-| Architecture | Monolithic script | Modular modules |
-| Type Safety | Minimal | Full type hints |
-| Documentation | Inline comments | Comprehensive docstrings |
-| Error Handling | Basic | Custom exception hierarchy |
-| Testability | Difficult | Modular, testable components |
-| Maintainability | Hard to extend | Clear separation of concerns |
-| Extensibility | Tightly coupled | Dependency injection |
-
 ## Contributing
 
 Contributions welcome! Please ensure:
