@@ -229,7 +229,7 @@ class TaskManager:
             marker = {
                 TaskStatus.PENDING: "[ ]",
                 TaskStatus.IN_PROGRESS: "[>]",
-                TaskStatus.COMPLETED: "[x]",
+                TaskStatus.COMPLETED: "[✓]",
             }.get(task.status, "[?]")
 
             blocked = (
