@@ -82,7 +82,7 @@ class StatusPane:
             return
         self._running = True
         ensure_border_status()
-        tty_path = create_balanced_pane(self.pane_title)
+        tty_path = create_balanced_pane(self.pane_title, keep_focus=True)
         self._pane_id = get_pane_by_tty(tty_path)
         self._file = open(tty_path, "w", buffering=1)
         self._thread = threading.Thread(target=self._refresh_loop, daemon=True)

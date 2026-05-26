@@ -241,7 +241,7 @@ class TeammateManager:
         ensure_border_status()
 
         # Create balanced pane with teammate name as title
-        return create_balanced_pane(title_prefix=name)
+        return create_balanced_pane(title_prefix=name, keep_focus=True)
 
     def _find_member(self, name: str) -> Optional[Dict]:
         """Find member by name"""

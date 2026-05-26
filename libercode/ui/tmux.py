@@ -105,6 +105,7 @@ def create_tmux_pane(
     target_pane: Optional[str] = None,
     direction: str = "h",
     title: Optional[str] = None,
+    keep_focus: bool = False,
 ) -> Tuple[str, str]:
     """
     Create a new tmux pane by splitting an existing one.
@@ -114,6 +115,7 @@ def create_tmux_pane(
         direction: Split direction - 'h' for horizontal (left/right),
                    'v' for vertical (top/bottom)
         title: Optional title for the new pane
+        keep_focus: If True, keep focus on the original pane instead of new one
 
     Returns:
         Tuple of (pane_id, tty_path)
@@ -124,6 +126,21 @@ def create_tmux_pane(
     """
     if direction not in ("h", "v"):
         raise ValueError("direction must be 'h' or 'v'")
+
+    # Capture current pane before splitting
+    current_pane = None
+    if keep_focus:
+        try:
+            result = subprocess.run(
+                ["tmux", "display-message", "-p", "#{pane_id}"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if result.returncode == 0:
+                current_pane = result.stdout.strip()
+        except Exception:
+            pass
 
     # Build split-window command
     split_flag = "-h" if direction == "h" else "-v"
@@ -160,10 +177,18 @@ def create_tmux_pane(
     if title is not None:
         set_pane_title(new_pane_id, title)
 
+    # Restore focus to original pane if requested
+    if keep_focus and current_pane:
+        subprocess.run(
+            ["tmux", "select-pane", "-t", current_pane],
+            capture_output=True,
+            timeout=5,
+        )
+
     return new_pane_id, tty_path
 
 
-def create_balanced_pane(title_prefix: str = "Pane") -> str:
+def create_balanced_pane(title_prefix: str = "Pane", keep_focus: bool = False) -> str:
     """
     Create a new tmux pane using balanced splitting strategy.
 
@@ -174,6 +199,7 @@ def create_balanced_pane(title_prefix: str = "Pane") -> str:
 
     Args:
         title_prefix: Prefix for pane title (default: "Pane")
+        keep_focus: If True, keep focus on the original pane instead of new one
 
     Returns:
         PTY device path for the new pane
@@ -198,7 +224,7 @@ def create_balanced_pane(title_prefix: str = "Pane") -> str:
 
     if not panes:
         # No panes found (shouldn't happen), create in current pane
-        _, tty_path = create_tmux_pane(title=title)
+        _, tty_path = create_tmux_pane(title=title, keep_focus=keep_focus)
         return tty_path
 
     # Find largest pane (by area)
@@ -221,6 +247,7 @@ def create_balanced_pane(title_prefix: str = "Pane") -> str:
         target_pane=target_id,
         direction=direction,
         title=title,
+        keep_focus=keep_focus,
     )
 
     return tty_path
