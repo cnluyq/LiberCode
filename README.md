@@ -95,10 +95,10 @@ export LIBERCODE_DEBUG=true  #set debug mode
 ### Quick Start
 
 ```bash
-# Run in tmux(recommended strongly for better i/o display)
+# Run in tmux(recommended strongly for better output display)
 tmux new-session -s LiberCode "libercode; echo 'press enter to exit...'; read"
 
-# Run command if no tmux
+# Run command if no tmux (there is no status display for this)
 libercode
 
 #example：
