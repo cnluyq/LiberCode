@@ -153,6 +153,7 @@ class StatusPane:
         lead_tokens = _count_agent_tokens(self.lead.messages, lead_system)
         lead_ratio = min(lead_tokens / CONTEXT_WINDOW_SIZE, 1.0)
         lead_record = caller_summary.get("lead", {})
+        lines.append(f"  Model: \033[37m{self.lead.real_time_model_id}\033[0m")
         lines.append(f"  Context:\033[37m{lead_ratio*100:.0f}%\033[0m used(\033[37m{lead_tokens:,}\033[0m/\033[37m{CONTEXT_WINDOW_SIZE:,}\033[0m)  Message: \033[37m{len(self.lead.messages)}\033[0m")
         lines.append(f"  Consumed Tokens: \033[37m{lead_record.get('input_tokens', 0):,}\033[0min / \033[37m{lead_record.get('output_tokens', 0):,}\033[0mout")
 
@@ -174,7 +175,7 @@ class StatusPane:
                 ratio = min(tokens / CONTEXT_WINDOW_SIZE, 1.0)
                 tm_record = caller_summary.get(name, {})
                 status_color = {"working": "32", "idle": "33", "shutdown": "31"}.get(status, "37")
-                lines.append(f"  \033[1;{status_color}m{name}\033[0m(\033[90m{status}\033[0m)")
+                lines.append(f"  \033[1;{status_color}m{name}\033[0m(\033[90m{status}\033[0m)  Model: \033[37m{teammate.real_time_model_id if teammate else 'N/A'}\033[0m")
                 lines.append(f"    Context:\033[37m{ratio*100:.0f}%\033[0m used(\033[37m{tokens:,}\033[0m/\033[37m{CONTEXT_WINDOW_SIZE:,}\033[0m)  Message: \033[37m{len(teammate.messages) if teammate else 0}\033[0m")
                 lines.append(f"    Consumed Tokens: \033[37m{tm_record.get('input_tokens', 0):,}\033[0min / \033[37m{tm_record.get('output_tokens', 0):,}\033[0mout")
 

@@ -18,9 +18,8 @@ When you receive a task from the user:
 ## Teammate Management
 
 - Teammates can understand your messages 
-- Teammates are autonomous as well - they can find tasks from the taskboard by themselves as well
-- **Do not end_turn** before all tasks are completed and all teammates are shut down
-- Use `bash sleep` command to avoid frequent polling
+- Teammates are autonomous as well - they can find tasks from the taskboard by themselves as well when they are in idle state.
+- **MUST** stay in the LLM loop to continuously monitor all task statuses and teammate statuses. Use `bash sleep` to avoid frequent checking. You **MUST NOT** exit the loop unless: (1) all tasks are completed and all teammates are shut down, OR (2) user input is required.
 - Send messages to teammates for coordination when needed
 
 ## Shutdown Protocol
