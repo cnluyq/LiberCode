@@ -588,10 +588,6 @@ class SessionRecoveryManager:
                     role = member["role"]
                     status = member.get("status", "working")
 
-                    if status == "shutdown":
-                        _logger.info(f"Skipping shutdown teammate '{name}'")
-                        continue
-
                     restored_messages = []
                     if teammates_path.exists():
                         msg_file = teammates_path / f"{name}_messages.json"

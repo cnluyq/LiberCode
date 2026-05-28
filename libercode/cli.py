@@ -121,8 +121,7 @@ def main():
         else:
             asyncio.run(async_repl_loop(lead, message_bus, task_manager, teammate_manager, log, None, None, status_pane))
     except KeyboardInterrupt:
-        if status_pane:
-            status_pane.stop()
+        teammate_manager.close_all_teammates(status_pane=status_pane)
         tprint("\nGoodbye!")
         log.info("LiberCode CLI shutting down")
         return 0
@@ -172,6 +171,8 @@ async def async_repl_loop(lead, message_bus, task_manager, teammate_manager, log
 
             if query.strip().lower() in ("q", "exit"):
                 log.info("User requested exit")
+                tprint("Cleaning ... ...")
+                teammate_manager.close_all_teammates(status_pane=status_pane)
                 tprint("Goodbye!")
                 break
 
@@ -335,6 +336,7 @@ async def async_repl_loop(lead, message_bus, task_manager, teammate_manager, log
 
                     if sub_cmd == "restore":
                         log.info(f"Restoring session: {session_name}")
+                        tprint(f"Restoring session: {session_name}")
 
                         await auto_saver.stop()
 
@@ -428,8 +430,7 @@ async def async_repl_loop(lead, message_bus, task_manager, teammate_manager, log
     finally:
         if auto_saver:
             await auto_saver.stop()
-        if status_pane:
-            status_pane.stop()
+        teammate_manager.close_all_teammates(status_pane=status_pane)
         signal.signal(signal.SIGINT, previous_handler)
 
 

@@ -116,7 +116,10 @@ class TeammateAgent:
         finally:
             output_manager.set_target(None)
             if self.pty_file:
-                self.pty_file.close()
+                try:
+                    self.pty_file.close()
+                except OSError:
+                    pass
 
     def run_with_history(self, restored_messages: List[Dict], team_name: str = "default") -> None:
         """Main teammate loop with pre-restored message history (for session recovery).
@@ -151,7 +154,10 @@ class TeammateAgent:
         finally:
             output_manager.set_target(None)
             if self.pty_file:
-                self.pty_file.close()
+                try:
+                    self.pty_file.close()
+                except OSError:
+                    pass
 
     def _handle_inbox_message(self, msg) -> None:
         """Handle a single inbox message based on its type."""

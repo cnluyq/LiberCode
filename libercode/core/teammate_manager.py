@@ -36,6 +36,7 @@ class TeammateManager:
     team_dir: Path
     threads: Dict[str, threading.Thread] = field(default_factory=dict)
     _teammates: Dict[str, TeammateAgent] = field(default_factory=dict, repr=False)
+    _pane_ids: Dict[str, str] = field(default_factory=dict, repr=False)
 
     def __post_init__(self):
         """Initialize team directory and load config"""
@@ -68,14 +69,15 @@ class TeammateManager:
         # Check if teammate already exists
         member = self._find_member(name)
 
-        if member and member.get("status") not in ("idle", "shutdown"):
-            return f"Error: '{name}' is currently {member['status']}"
+        if member:
+            return f"Error: '{name}' already exists currently with status of {member['status']}"
 
         # Try to create tmux pane (optional)
         pty_file = None
+        pane_id = None
         if self._is_tmux_available():
             try:
-                pty_path = self._create_tmux_pane_for_teammate(name)
+                pane_id, pty_path = self._create_tmux_pane_for_teammate(name)
                 pty_file = open(pty_path, 'w', buffering=1)
                 if self.config.debug:
                     pty_file.write(f"Teammate {name} pane initialized.\n")
@@ -96,6 +98,10 @@ class TeammateManager:
             self._team_config["members"].append(member)
 
         self._save_config()
+
+        # Track pane id for later cleanup
+        if pane_id:
+            self._pane_ids[name] = pane_id
 
         # Create teammate agent
         teammate = TeammateAgent(
@@ -136,13 +142,14 @@ class TeammateManager:
         """
         member = self._find_member(name)
 
-        if member and member.get("status") not in ("idle", "shutdown"):
-            return f"Error: '{name}' is currently {member['status']}"
+        if member:
+            return f"Error: '{name}' already exist currently with status of {member['status']}"
 
         pty_file = None
+        pane_id = None
         if self._is_tmux_available():
             try:
-                pty_path = self._create_tmux_pane_for_teammate(name)
+                pane_id, pty_path = self._create_tmux_pane_for_teammate(name)
                 pty_file = open(pty_path, 'w', buffering=1)
                 if self.config.debug:
                     pty_file.write(f"Teammate {name} pane initialized (recovered).\n")
@@ -161,6 +168,10 @@ class TeammateManager:
             self._team_config["members"].append(member)
 
         self._save_config()
+
+        # Track pane id for later cleanup
+        if pane_id:
+            self._pane_ids[name] = pane_id
 
         teammate = TeammateAgent(
             name=name,
@@ -186,7 +197,7 @@ class TeammateManager:
         return f"Spawned '{name}' (role: {role}) [recovered]" + (f" in pane" if pty_file else "")
 
     def shutdown_all(self, timeout: float = 5.0) -> List[str]:
-        """Shutdown all active teammates and wait for their threads.
+        """Shutdown all active teammates and close their tmux panes.
 
         Args:
             timeout: Max seconds to wait per thread
@@ -198,7 +209,6 @@ class TeammateManager:
 
         for name, teammate in list(self._teammates.items()):
             teammate._should_shutdown = True
-            self._set_status(name, "shutdown")
 
         for name, thread in list(self.threads.items()):
             thread.join(timeout=timeout)
@@ -207,8 +217,61 @@ class TeammateManager:
             else:
                 results.append(f"'{name}' shut down")
 
+        # Close tmux panes for all teammates
+        self._close_all_panes()
+
         self._teammates.clear()
         self.threads.clear()
+
+        return results
+
+    def _close_pane(self, name: str) -> None:
+        """Close tmux pane for a specific teammate.
+
+        Args:
+            name: Teammate name
+        """
+        pane_id = self._pane_ids.pop(name, None)
+        if pane_id and self._is_tmux_available():
+            try:
+                from libercode.ui import close_tmux_pane
+                close_tmux_pane(pane_id)
+            except Exception:
+                pass
+
+    def _close_all_panes(self) -> None:
+        """Close tmux panes for all teammates."""
+        if not self._is_tmux_available():
+            self._pane_ids.clear()
+            return
+
+        from libercode.ui import close_tmux_pane
+
+        for name, pane_id in list(self._pane_ids.items()):
+            try:
+                close_tmux_pane(pane_id)
+            except Exception:
+                pass
+        self._pane_ids.clear()
+
+    def close_all_teammates(self, timeout: float = 5.0, status_pane=None) -> List[str]:
+        """Shutdown all teammates, close their tmux panes, and close status pane.
+
+        This is the primary cleanup function to call before exit or session restore.
+        It ensures all teammate threads are stopped and their associated tmux panes
+        (including the status pane) are closed.
+
+        Args:
+            timeout: Max seconds to wait per teammate thread
+            status_pane: Optional StatusPane instance to close
+
+        Returns:
+            List of shutdown status messages
+        """
+        results = self.shutdown_all(timeout=timeout)
+
+        if status_pane:
+            status_pane.stop()
 
         return results
 
@@ -221,27 +284,28 @@ class TeammateManager:
         from libercode.ui import is_tmux_available
         return is_tmux_available()
 
-    def _create_tmux_pane_for_teammate(self, name: str) -> str:
-        """
-        Create tmux pane for teammate using balanced splitting.
+    def _create_tmux_pane_for_teammate(self, name: str) -> tuple:
+        """Create tmux pane for teammate using balanced splitting.
 
         Args:
             name: Teammate name (used for pane title)
 
         Returns:
-            PTY device path
+            Tuple of (pane_id, pty_device_path)
 
         Raises:
             TmuxError: If pane creation fails
         """
-        from libercode.ui import create_balanced_pane
+        from libercode.ui import create_balanced_pane, get_pane_by_tty
 
         # Ensure border status is enabled
         from libercode.ui import ensure_border_status
         ensure_border_status()
 
         # Create balanced pane with teammate name as title
-        return create_balanced_pane(title_prefix=name, keep_focus=True)
+        tty_path = create_balanced_pane(title_prefix=name, keep_focus=True)
+        pane_id = get_pane_by_tty(tty_path)
+        return pane_id, tty_path
 
     def _find_member(self, name: str) -> Optional[Dict]:
         """Find member by name"""
@@ -295,8 +359,7 @@ class TeammateManager:
         return self._teammates.get(name)
 
     def drop(self, name: str) -> str:
-        """
-        Drop (remove) a teammate and cleanup related data.
+        """Drop (remove) a teammate and cleanup related data.
 
         Args:
             name: Teammate name
@@ -307,6 +370,9 @@ class TeammateManager:
         member = self._find_member(name)
         if not member:
             return f"Error: '{name}' not found"
+
+        # Close tmux pane if tracked
+        self._close_pane(name)
 
         if name in self._teammates:
             del self._teammates[name]

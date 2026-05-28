@@ -13,7 +13,7 @@ from typing import List, Dict, Any, Optional
 
 from libercode.taskboard.models import Task, TaskStatus
 from libercode.utils.token_tracker import TokenTracker
-from libercode.ui.tmux import create_balanced_pane, get_pane_by_tty, ensure_border_status
+from libercode.ui.tmux import create_balanced_pane, get_pane_by_tty, ensure_border_status, close_tmux_pane
 
 
 CONTEXT_WINDOW_SIZE = 1_000_000
@@ -98,6 +98,12 @@ class StatusPane:
             except OSError:
                 pass
             self._file = None
+        if self._pane_id:
+            try:
+                close_tmux_pane(self._pane_id)
+            except Exception:
+                pass
+            self._pane_id = None
 
     def _write(self, content: str) -> None:
         if self._file:
