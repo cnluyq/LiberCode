@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from concurrent.futures import ThreadPoolExecutor
 import copy
 
-from libercode.utils.logging import get_logger
+from libercode.utils.logging import get_logger, switch_log_dir
 from libercode.messaging.serialization import serialize_content
 from libercode.utils.token_tracker import TokenTracker
 
@@ -84,10 +84,11 @@ class SessionManager:
         """Get path for session directory."""
         return self.session_dir / session_name
 
-    def create_session(self) -> str:
+    def create_session(self, session_name: str = None) -> str:
         """Create a new session directory and return session name."""
         with self._lock:
-            session_name = self._generate_session_name()
+            if session_name is None:
+                session_name = self._generate_session_name()
             session_path = self._get_session_path(session_name)
 
             session_path.mkdir(parents=True, exist_ok=True)
@@ -608,5 +609,8 @@ class SessionRecoveryManager:
                     _time.sleep(0.5)
 
             summary["restored"]["teammates"] = spawned
+
+        _logger.info(f"Log file will switched to: .libercode/sessions/{session_name}/libercode.log")
+        switch_log_dir(str(session_path))
 
         return summary

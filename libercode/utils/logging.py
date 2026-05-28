@@ -26,7 +26,7 @@ class LogConfig:
     console_level: str = "INFO"
     file_level: str = "DEBUG"
 
-    log_dir: str = ".libercode/logs"
+    log_dir: str = ".libercode/sessions"
     log_file: str = "libercode.log"
     max_bytes: int = 10 * 1024 * 1024
     backup_count: int = 5
@@ -248,12 +248,47 @@ class LiberCodeLogger:
                 if isinstance(handler, logging.StreamHandler) and not isinstance(handler, logging.FileHandler):
                     handler.setLevel(level_int)
 
+    def reconfigure_file_handler(self, log_dir: str) -> None:
+        """Switch the file handler to a new log directory.
+
+        Closes and removes the current file handler, then creates a new
+        RotatingFileHandler pointing at ``log_dir / log_file``.
+        """
+        root_logger = logging.getLogger('libercode')
+
+        old_file_handlers = [
+            h for h in root_logger.handlers
+            if isinstance(h, logging.handlers.RotatingFileHandler)
+            and getattr(h, '_libercode_handler', False)
+        ]
+        for handler in old_file_handlers:
+            handler.close()
+            root_logger.removeHandler(handler)
+
+        self.config.log_dir = log_dir
+        new_handler = self._create_file_handler()
+        if new_handler:
+            new_handler._libercode_handler = True
+            root_logger.addHandler(new_handler)
+
 
 _global_logger: Optional[LiberCodeLogger] = None
 
 
+def switch_log_dir(log_dir: str) -> None:
+    """Switch the file handler to write logs to a new directory.
+
+    Used when a session is restored so that subsequent logs are written
+    into the restored session's directory.
+    """
+    global _global_logger
+    if _global_logger is None:
+        return
+    _global_logger.reconfigure_file_handler(log_dir)
+
+
 def setup_logging(
-    log_dir: str = ".libercode/logs",
+    session_name: str = None,
     console_level: str = "ERROR",
     file_level: str = "DEBUG",
     use_colors: bool = True,
@@ -262,6 +297,11 @@ def setup_logging(
 ) -> LiberCodeLogger:
     """Setup logging system for LiberCode."""
     global _global_logger
+
+    if session_name:
+        log_dir = f".libercode/sessions/{session_name}"
+    else:
+        log_dir = ".libercode/logs"
 
     config = LogConfig(
         log_dir=log_dir,

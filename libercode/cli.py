@@ -9,6 +9,7 @@ import json
 import time
 import sys
 import signal
+import uuid
 from datetime import datetime
 from pathlib import Path
 from anthropic import Anthropic
@@ -30,13 +31,21 @@ from libercode.session_manager import SessionManager, AutoSaver, SessionRecovery
 _current_task = None
 
 
+def _generate_session_name() -> str:
+    """Generate unique session name with timestamp and random suffix."""
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    random_suffix = uuid.uuid4().hex[:6]
+    return f"session_{timestamp}_{random_suffix}"
+
+
 def main():
     """Main CLI entry point.
 
     Initializes all components and runs REPL loop.
     """
+    session_name = _generate_session_name()
     logger = setup_logging(
-        log_dir=".libercode/logs",
+        session_name=session_name,
         console_level="ERROR",
         file_level="DEBUG",
         use_colors=True,
@@ -85,7 +94,7 @@ def main():
         task_manager=task_manager,
         message_bus=message_bus,
     )
-    session_manager.create_session()
+    session_manager.create_session(session_name)
     auto_saver = AutoSaver(session_manager, initial_interval=config.session_auto_save_interval)
     log.info("Session manager initialized")
 
@@ -355,7 +364,7 @@ async def async_repl_loop(lead, message_bus, task_manager, teammate_manager, log
                                         interval_seconds=session_manager._current_interval,
                                     )
                                 else:
-                                    session_manager.create_session()
+                                    session_manager.create_session(session_name)
 
                                 session_manager._file_mtimes.clear()
 
