@@ -49,6 +49,7 @@ class TeammateAgent:
     token_tracker: TokenTracker = field(default_factory=TokenTracker)
     messages: List[Dict] = field(default_factory=list)
     pty_file: Optional[Any] = None
+    teammate_manager: Any = None
     _logger: Any = field(default=None, init=False)
     _should_shutdown: bool = False
     _agents_md_injected: bool = False
@@ -175,105 +176,109 @@ class TeammateAgent:
         """Core work/idle loop shared by run() and run_with_history()."""
         while True:
             # -- WORK PHASE: standard agent loop --
-            round_num = 0
-            for _ in range(50):
-                round_num += 1
+            # Check initial status: skip work loop if already idle
+            initial_status = self._get_status()
+            if initial_status != "idle":
+                round_num = 0
+                for _ in range(50):
+                    round_num += 1
 
-                # Check inbox
-                inbox = self.message_bus.read_inbox(self.name)
-                if inbox:
-                    for msg in inbox:
-                        self._logger.info(f"Teammate {self.name} received message<{msg.type}> from {msg.sender} during work")
-                        self._handle_inbox_message(msg)
+                    # Check inbox
+                    inbox = self.message_bus.read_inbox(self.name)
+                    if inbox:
+                        for msg in inbox:
+                            self._logger.info(f"Teammate {self.name} received message<{msg.type}> from {msg.sender} during work")
+                            self._handle_inbox_message(msg)
 
-                # Call LLM
-                self._logger.info(f"round#{round_num} calling LLM ......")
-                start_time = time.time()
-                try:
-                    response = self.client.messages.create(
-                        model=self.config.model_id,
-                        system=sys_prompt,
-                        messages=self.messages,
-                        tools=self._get_tools(),
-                        max_tokens=8000,
-                    )
-                    self.real_time_model_id = response.model
-                    duration_ms = int((time.time() - start_time) * 1000)
+                    # Call LLM
+                    self._logger.info(f"round#{round_num} calling LLM ......")
+                    start_time = time.time()
+                    try:
+                        response = self.client.messages.create(
+                            model=self.config.model_id,
+                            system=sys_prompt,
+                            messages=self.messages,
+                            tools=self._get_tools(),
+                            max_tokens=8000,
+                        )
+                        self.real_time_model_id = response.model
+                        duration_ms = int((time.time() - start_time) * 1000)
 
-                    self._logger.info(
-                        f"LLM call: model={response.model}, "
-                        f"tokens={response.usage.input_tokens}in/{response.usage.output_tokens}out, "
-                        f"duration={duration_ms}ms"
-                    )
+                        self._logger.info(
+                            f"LLM call: model={response.model}, "
+                            f"tokens={response.usage.input_tokens}in/{response.usage.output_tokens}out, "
+                            f"duration={duration_ms}ms"
+                        )
 
-                except Exception as e:
-                    if hasattr(e, 'status_code'):
-                        if e.status_code == 500 or e.status_code == 502 or e.status_code == 503:
-                            self._logger.warning("LLM internal error, sleeping and retrying")
-                            time.sleep(30)
-                            continue
-                        elif e.status_code == 429:
-                            self._logger.warning("Rate limit exceeded, sleeping and retrying")
-                            time.sleep(30)
-                            continue
-                    self._logger.error(f"Exception during LLM call: {e}")
-                    tprint(f"Teammate {self.name} shut down because of a fatal internel exception happened")
-                    msg = Message(
-                        type=MessageType.SHUTDOWN_BY_SELF,
-                        sender=self.name,
-                        content=f"Teammate {self.name} shut down because of a fatal internel error",
-                    )
-                    self.message_bus.send(msg, to="lead")
-                    return
+                    except Exception as e:
+                        if hasattr(e, 'status_code'):
+                            if e.status_code == 500 or e.status_code == 502 or e.status_code == 503:
+                                self._logger.warning("LLM internal error, sleeping and retrying")
+                                time.sleep(30)
+                                continue
+                            elif e.status_code == 429:
+                                self._logger.warning("Rate limit exceeded, sleeping and retrying")
+                                time.sleep(30)
+                                continue
+                        self._logger.error(f"Exception during LLM call: {e}")
+                        tprint(f"Teammate {self.name} shut down because of a fatal internel exception happened")
+                        msg = Message(
+                            type=MessageType.SHUTDOWN_BY_SELF,
+                            sender=self.name,
+                            content=f"Teammate {self.name} shut down because of a fatal internel error",
+                        )
+                        self.message_bus.send(msg, to="lead")
+                        return
 
-                # Update token stats
-                self.token_tracker.record(self.name, response, duration_ms)
+                    # Update token stats
+                    self.token_tracker.record(self.name, response, duration_ms)
 
-                if hasattr(response, "model_dump"):
-                    response_dict = response.model_dump()
-                    self._logger.info(f"LLM response: {json.dumps(response_dict, indent=2, ensure_ascii=False)}")
-                else:
-                    self._logger.info(f"LLM response (raw): {response}")
+                    if hasattr(response, "model_dump"):
+                        response_dict = response.model_dump()
+                        self._logger.info(f"LLM response: {json.dumps(response_dict, indent=2, ensure_ascii=False)}")
+                    else:
+                        self._logger.info(f"LLM response (raw): {response}")
 
-                self.messages.append({"role": "assistant", "content": response.content})
+                    self.messages.append({"role": "assistant", "content": response.content})
 
-                # Check if done
-                if response.stop_reason != "tool_use":
-                    self._logger.info(f"Teammate {self.name} llm loop go to idle as stop_reason ({response.stop_reason}) is not 'tool_use'.")
-                    break
+                    # Check if done
+                    if response.stop_reason != "tool_use":
+                        self._logger.info(f"Teammate {self.name} llm loop go to idle as stop_reason ({response.stop_reason}) is not 'tool_use'.")
+                        break
 
-                format_llm_response(response, self.name)
+                    format_llm_response(response, self.name)
 
-                # Execute tools
-                results = []
-                idle_requested = False
-                for block in response.content:
-                    if block.type == "tool_use":
-                        if block.name == "idle":
-                            idle_requested = True
-                            output = "Entering idle phase. Will poll for new tasks."
-                            log_agent_event(self.name, 'idle', {'round': round_num})
-                            self._logger.debug("Entering idle phase")
-                        else:
-                            output = self._execute_tool(block.name, block.input)
+                    # Execute tools
+                    results = []
+                    idle_requested = False
+                    for block in response.content:
+                        if block.type == "tool_use":
+                            if block.name == "idle":
+                                idle_requested = True
+                                output = "Entering idle phase. Will poll for new tasks."
+                                log_agent_event(self.name, 'idle', {'round': round_num})
+                                self._logger.debug("Entering idle phase")
+                            else:
+                                output = self._execute_tool(block.name, block.input)
 
-                        self._logger.info(f"Executing tool: {block.name}, result:\n{str(output)}")
-                        results.append({
-                            "type": "tool_result",
-                            "tool_use_id": block.id,
-                            "content": str(output),
-                        })
+                            self._logger.info(f"Executing tool: {block.name}, result:\n{str(output)}")
+                            results.append({
+                                "type": "tool_result",
+                                "tool_use_id": block.id,
+                                "content": str(output),
+                            })
 
-                if self._should_shutdown:
-                    log_agent_event(self.name, 'shutdown', {'reason': 'approved'})
-                    self._logger.info(f"Teammate {self.name} shut down completely and quitted")
-                    tprint(f"Teammate {self.name} shut down completely and quitted")
-                    return
+                    if self._should_shutdown:
+                        log_agent_event(self.name, 'shutdown', {'reason': 'approved'})
+                        self._logger.info(f"Teammate {self.name} shut down completely and quitted")
+                        tprint(f"Teammate {self.name} shut down completely and quitted")
+                        return
 
-                self.messages.append({"role": "user", "content": results})
+                    self.messages.append({"role": "user", "content": results})
 
-                if idle_requested:
-                    break
+                    if idle_requested:
+                        self._set_status("idle")
+                        break
 
             # -- IDLE PHASE: poll for inbox messages and unclaimed tasks --
             resume = False
@@ -290,6 +295,7 @@ class TeammateAgent:
                         resume = True
 
                 if resume:
+                    self._set_status("working")
                     break
 
                 # Check for unclaimed tasks
@@ -301,6 +307,7 @@ class TeammateAgent:
                         claimed = self._claim_task(task)
                         if claimed:
                             resume = True
+                            self._set_status("working")
                             break
                     except Exception:
                         continue
@@ -317,6 +324,18 @@ class TeammateAgent:
                 )
                 self.message_bus.send(msg, to="lead")
                 return
+
+    def _get_status(self) -> str:
+        if not self.teammate_manager:
+            return "working"
+        member = self.teammate_manager._find_member(self.name)
+        if not member:
+            return "working"
+        return member.get("status", "working")
+
+    def _set_status(self, status: str) -> None:
+        if self.teammate_manager:
+            self.teammate_manager._set_status(self.name, status)
 
     def clear_messages(self) -> None:
         """Clear teammate's message history."""

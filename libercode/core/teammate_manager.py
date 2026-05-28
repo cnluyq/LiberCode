@@ -112,6 +112,7 @@ class TeammateManager:
             message_bus=self.message_bus,
             task_manager=self.task_manager,
             pty_file=pty_file,
+            teammate_manager=self,
         )
 
         # Store teammate instance for later access
@@ -181,6 +182,7 @@ class TeammateManager:
             message_bus=self.message_bus,
             task_manager=self.task_manager,
             pty_file=pty_file,
+            teammate_manager=self,
         )
 
         self._teammates[name] = teammate
