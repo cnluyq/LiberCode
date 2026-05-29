@@ -6,6 +6,7 @@ import os
 import subprocess
 import asyncio
 import json
+import shutil
 import time
 import sys
 import signal
@@ -29,6 +30,15 @@ from libercode.ui import is_tmux_available
 from libercode.session_manager import SessionManager, AutoSaver, SessionRecoveryManager, SessionMeta
 
 _current_task = None
+
+
+def _cleanup_workdir_dirs(config):
+    for d in (config.team_dir, config.tasks_dir):
+        try:
+            if d.exists():
+                shutil.rmtree(d)
+        except Exception:
+            pass
 
 
 def _generate_session_name() -> str:
@@ -117,20 +127,21 @@ def main():
 
     try:
         if config.session_auto_save:
-            asyncio.run(async_repl_loop(lead, message_bus, task_manager, teammate_manager, log, auto_saver, session_manager, status_pane))
+            asyncio.run(async_repl_loop(lead, message_bus, task_manager, teammate_manager, log, auto_saver, session_manager, status_pane, config))
         else:
-            asyncio.run(async_repl_loop(lead, message_bus, task_manager, teammate_manager, log, None, None, status_pane))
+            asyncio.run(async_repl_loop(lead, message_bus, task_manager, teammate_manager, log, None, None, status_pane, config))
     except KeyboardInterrupt:
         teammate_manager.close_all_teammates(status_pane=status_pane)
         tprint("\nGoodbye!")
         log.info("LiberCode CLI shutting down")
+        _cleanup_workdir_dirs(config)
         return 0
 
     log.info("LiberCode CLI shutting down")
     return 0
 
 
-async def async_repl_loop(lead, message_bus, task_manager, teammate_manager, log, auto_saver=None, session_manager=None, status_pane=None):
+async def async_repl_loop(lead, message_bus, task_manager, teammate_manager, log, auto_saver=None, session_manager=None, status_pane=None, config=None):
     """Async REPL loop with interrupt support."""
     from libercode.ui.input_handler import input_with_cursor_support
 
@@ -431,6 +442,8 @@ async def async_repl_loop(lead, message_bus, task_manager, teammate_manager, log
         if auto_saver:
             await auto_saver.stop()
         teammate_manager.close_all_teammates(status_pane=status_pane)
+        if config:
+            _cleanup_workdir_dirs(config)
         signal.signal(signal.SIGINT, previous_handler)
 
 
