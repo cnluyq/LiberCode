@@ -302,8 +302,8 @@ class AutoSaver:
         self,
         session_manager: SessionManager,
         initial_interval: float = 1.0,
-        min_interval: float = 0.5,
-        max_interval: float = 10.0,
+        min_interval: float = 1.0,
+        max_interval: float = 30.0,
     ):
         self.session_manager = session_manager
         self._interval = initial_interval
@@ -371,14 +371,6 @@ class AutoSaver:
                         f"Increasing interval to {self._interval:.1f}s"
                     )
                 self._consecutive_adjustments = 0
-        else:
-            self._consecutive_adjustments = 0
-            if self._interval > self._min_interval:
-                new_interval = max(self._interval * 0.9, self._min_interval)
-                if new_interval < self._interval:
-                    self._interval = new_interval
-                    self._logger.debug(f"Decreasing interval to {self._interval:.1f}s")
-
 
 class SessionRecoveryManager:
     """
