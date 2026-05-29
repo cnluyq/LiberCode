@@ -202,6 +202,7 @@ async def async_repl_loop(lead, message_bus, task_manager, teammate_manager, log
                     tprint(" /clear <teammate> - Clear specific teammate's message history")
                     tprint(" /clear all - Clear lead and all teammates' message history")
                     tprint(" /sessions - List all saved sessions")
+                    tprint(" /sessions resubject - Rewrite subject of current session")
                     tprint(" /sessions restore <name_or_number> - Restore a session")
                     tprint(" /sessions delete <name_or_number> - Delete a session")
                     tprint(" q, exit - Exit the application")
@@ -285,17 +286,9 @@ async def async_repl_loop(lead, message_bus, task_manager, teammate_manager, log
                         continue
 
                     current_session_name = session_manager.get_current_session_name()
-                    
                     recovery_manager = SessionRecoveryManager(Path.cwd())
 
-                    if sub_cmd == "restore" and len(parts) > 2:
-                        session_identifier = " ".join(parts[2:])
-                    elif sub_cmd == "delete" and len(parts) > 2:
-                        session_identifier = " ".join(parts[2:])
-                    elif sub_cmd == "restore" or sub_cmd == "delete":
-                        tprint(f"Usage: /sessions {sub_cmd} <name_or_number>")
-                        continue
-                    else:
+                    if sub_cmd == None:
                         sessions = recovery_manager.list_sessions()
                         if not sessions:
                             tprint("No saved sessions found.")
@@ -305,16 +298,51 @@ async def async_repl_loop(lead, message_bus, task_manager, teammate_manager, log
                                 created = sess.get("created_at", "unknown")
                                 updated = sess.get("updated_at", "unknown")
                                 session_name = sess.get("session_name", "unknown")
+                                subject = sess.get("subject", "")
                                 save_count = sess.get("save_count", 0)
                                 if session_name == current_session_name:
-                                    tprint(f" {i}. {session_name} (current active session)")
+                                    tprint(f" {i}. {subject} (current)")
                                 else:
-                                    tprint(f" {i}. {session_name}")
+                                    tprint(f" {i}. {subject}")
 
                                 tprint(f"    Created: {created}  Updated: {updated}  Saves: {save_count}")
-                            tprint()
-                            tprint("Commands: /sessions restore <name_or_number>")
-                            tprint("          /sessions delete <name_or_number>")
+                        continue
+
+                    if sub_cmd != "restore" and sub_cmd != "delete" and sub_cmd != "resubject":
+                        tprint(f"Unavailable sub-command: {sub_cmd}")
+                        tprint("Available Sessions sub-commands:")
+                        tprint("          /sessions resubject")
+                        tprint("          /sessions restore <name_or_number>")
+                        tprint("          /sessions delete <name_or_number>")
+                        continue
+
+                    if sub_cmd == "resubject":
+                        current_subject = session_manager.get_current_subject() or "(empty)"
+                        tprint(f"Current subject: {current_subject}")
+                        try:
+                            new_subject = await loop.run_in_executor(
+                                None, lambda: input("New subject: ")
+                            )
+                            new_subject = new_subject.strip()
+                        except (EOFError, KeyboardInterrupt):
+                            tprint("\nResubject cancelled.")
+                            continue
+                        if not new_subject:
+                            tprint("Subject cannot be empty.")
+                            continue
+                        if len(new_subject) > 100:
+                            tprint(f"Subject too long: {len(new_subject)} chars (max 100).")
+                            continue
+                        session_manager.update_subject(new_subject)
+                        tprint(f"Subject updated: {new_subject[:100]}")
+                        continue
+
+                    if sub_cmd == "restore" and len(parts) > 2:
+                        session_identifier = " ".join(parts[2:])
+                    elif sub_cmd == "delete" and len(parts) > 2:
+                        session_identifier = " ".join(parts[2:])
+                    elif sub_cmd == "restore" or sub_cmd == "delete":
+                        tprint(f"Usage: /sessions {sub_cmd} <name_or_number>")
                         continue
 
                     sessions = recovery_manager.list_sessions()
@@ -371,10 +399,11 @@ async def async_repl_loop(lead, message_bus, task_manager, teammate_manager, log
                                     session_manager._current_session = SessionMeta(
                                         session_id=meta_data.get("session_id", ""),
                                         session_name=session_name,
+                                        subject=meta_data.get("subject", ""),
                                         created_at=meta_data.get("created_at", ""),
                                         updated_at=datetime.now().isoformat(),
                                         save_count=0,
-                                        interval_seconds=session_manager._current_interval,
+                                        interval_seconds=1.0,
                                     )
                                 else:
                                     session_manager.create_session(session_name)
@@ -436,6 +465,8 @@ async def async_repl_loop(lead, message_bus, task_manager, teammate_manager, log
                 continue 
 
             log.info(f"Processing user input: \n{query}")
+            if session_manager:
+                session_manager.set_initial_subject(query)
             message = {"role": "user", "content": query}
             await run_llm_with_interrupt(lead, message, log)
     finally:

@@ -134,6 +134,7 @@ class LiberCodeLogger:
 
         self.config = config or LogConfig()
         self._loggers: Dict[str, logging.Logger] = {}
+        self._handler_lock = threading.Lock()
         self._setup_root_logger()
         LiberCodeLogger._initialized = True
 
@@ -253,23 +254,27 @@ class LiberCodeLogger:
 
         Closes and removes the current file handler, then creates a new
         RotatingFileHandler pointing at ``log_dir / log_file``.
+        Thread-safe: acquires _handler_lock; adds new handler before removing
+        old one to prevent log loss during the swap.
         """
-        root_logger = logging.getLogger('libercode')
+        with self._handler_lock:
+            root_logger = logging.getLogger('libercode')
 
-        old_file_handlers = [
-            h for h in root_logger.handlers
-            if isinstance(h, logging.handlers.RotatingFileHandler)
-            and getattr(h, '_libercode_handler', False)
-        ]
-        for handler in old_file_handlers:
-            handler.close()
-            root_logger.removeHandler(handler)
+            old_file_handlers = [
+                h for h in root_logger.handlers
+                if isinstance(h, logging.handlers.RotatingFileHandler)
+                and getattr(h, '_libercode_handler', False)
+            ]
 
-        self.config.log_dir = log_dir
-        new_handler = self._create_file_handler()
-        if new_handler:
-            new_handler._libercode_handler = True
-            root_logger.addHandler(new_handler)
+            self.config.log_dir = log_dir
+            new_handler = self._create_file_handler()
+            if new_handler:
+                new_handler._libercode_handler = True
+                root_logger.addHandler(new_handler)
+
+            for handler in old_file_handlers:
+                handler.close()
+                root_logger.removeHandler(handler)
 
 
 _global_logger: Optional[LiberCodeLogger] = None

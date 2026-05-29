@@ -14,8 +14,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass, field
-from concurrent.futures import ThreadPoolExecutor
-import copy
 
 from libercode.utils.logging import get_logger, switch_log_dir
 from libercode.messaging.serialization import serialize_content
@@ -31,6 +29,7 @@ class SessionMeta:
     updated_at: str
     save_count: int = 0
     interval_seconds: float = 1.0
+    subject: str = ""
 
 
 class SessionManager:
@@ -62,15 +61,8 @@ class SessionManager:
 
         self._lock = threading.RLock()
         self._current_session: Optional[SessionMeta] = None
-        self._save_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="session_save")
 
         self._file_mtimes: Dict[str, float] = {}
-
-        self._save_count = 0
-        self._min_interval = 1.0
-        self._current_interval = 1.0
-        self._last_save_duration = 0.0
-        self._consecutive_slow_saves = 0
 
         self._logger = get_logger('libercode.session')
 
@@ -101,7 +93,7 @@ class SessionManager:
                 created_at=datetime.now().isoformat(),
                 updated_at=datetime.now().isoformat(),
                 save_count=0,
-                interval_seconds=self._current_interval,
+                interval_seconds=1.0,
             )
             self._save_meta()
 
@@ -121,6 +113,7 @@ class SessionManager:
             "updated_at": self._current_session.updated_at,
             "save_count": self._current_session.save_count,
             "interval_seconds": self._current_session.interval_seconds,
+            "subject": self._current_session.subject,
         }
         meta_path.write_text(json.dumps(meta_data, indent=2, ensure_ascii=False))
 
@@ -234,8 +227,11 @@ class SessionManager:
         self._file_mtimes[str(token_path)] = time.time()
         return True
 
-    def _do_save(self) -> tuple[bool, float]:
-        """Perform a save operation. Returns (changed, duration)."""
+    def _do_save_unlocked(self) -> tuple[bool, float]:
+        """Perform a save operation. Returns (changed, duration).
+
+        Caller must hold self._lock.
+        """
         if not self._current_session:
             return False, 0.0
 
@@ -260,46 +256,39 @@ class SessionManager:
 
     def save(self) -> bool:
         """Thread-safe save operation."""
-        changed, duration = self._do_save()
-
         with self._lock:
-            self._last_save_duration = duration
-            self._save_count += 1
-
-            if duration > self._current_interval * 0.8:
-                self._consecutive_slow_saves += 1
-                if self._consecutive_slow_saves >= 3:
-                    new_interval = min(self._current_interval * 1.5, 10.0)
-                    if new_interval > self._current_interval:
-                        self._current_interval = new_interval
-                        self._logger.warning(
-                            f"Auto-save taking too long ({duration:.2f}s). "
-                            f"Increasing interval to {self._current_interval:.1f}s"
-                        )
-                    self._consecutive_slow_saves = 0
-            else:
-                self._consecutive_slow_saves = 0
-
-                if self._current_interval > self._min_interval:
-                    new_interval = max(self._current_interval * 0.9, self._min_interval)
-                    if new_interval < self._current_interval:
-                        self._current_interval = new_interval
-                        self._logger.debug(f"Decreasing auto-save interval to {self._current_interval:.1f}s")
+            changed, duration = self._do_save_unlocked()
 
         return changed
-
-    def save_async(self) -> None:
-        """Non-blocking async save."""
-        self._save_pool.submit(self.save)
-
-    def get_interval(self) -> float:
-        """Get current save interval."""
-        return self._current_interval
 
     def get_current_session_name(self) -> Optional[str]:
         """Get current session name."""
         return self._current_session.session_name if self._current_session else None
 
+    def get_current_subject(self) -> Optional[str]:
+        """Get current session subject."""
+        return self._current_session.subject if self._current_session else None
+
+    def update_subject(self, subject: str) -> bool:
+        """Update the current session subject."""
+        if not self._current_session:
+            return False
+        with self._lock:
+            self._current_session.subject = subject[:100]
+            self._save_meta()
+            self._logger.info(f"Session subject updated: {subject[:100]}")
+            return True
+
+    def set_initial_subject(self, text: str) -> None:
+        """Set subject from first user input if subject is still empty."""
+        if not self._current_session or self._current_session.subject:
+            return
+        with self._lock:
+            if self._current_session.subject:
+                return
+            self._current_session.subject = text.strip()[:20]
+            self._save_meta()
+            self._logger.info(f"Session subject set: {self._current_session.subject}")
 
 class AutoSaver:
     """
@@ -332,17 +321,16 @@ class AutoSaver:
         """Background save loop."""
         while self._running:
             try:
-                self.session_manager.save_async()
+                start = time.time()
+                loop = asyncio.get_event_loop()
+                await loop.run_in_executor(None, self.session_manager.save)
+                duration = time.time() - start
+                self.adjust_interval(duration)
                 await asyncio.sleep(self._interval)
             except asyncio.CancelledError:
                 break
             except Exception as e:
                 self._logger.error(f"Error in save loop: {e}")
-
-            new_interval = self.session_manager.get_interval()
-            if new_interval != self._interval:
-                self._interval = new_interval
-                self._logger.debug(f"AutoSaver interval adjusted to {self._interval:.1f}s")
 
     def start(self) -> None:
         """Start the auto-saver."""
@@ -380,7 +368,7 @@ class AutoSaver:
                     self._interval = new_interval
                     self._logger.warning(
                         f"Save duration {measured_duration:.2f}s exceeds threshold, "
-                        f"increasing interval to {self._interval:.1f}s"
+                        f"Increasing interval to {self._interval:.1f}s"
                     )
                 self._consecutive_adjustments = 0
         else:
