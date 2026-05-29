@@ -64,12 +64,14 @@ class StatusPane:
         task_manager,
         teammate_manager,
         lead,
+        session_manager=None,
         refresh_interval: float = 1.0,
         pane_title: str = "Status",
     ):
         self.task_manager = task_manager
         self.teammate_manager = teammate_manager
         self.lead = lead
+        self.session_manager = session_manager
         self.refresh_interval = refresh_interval
         self.pane_title = pane_title
         self._file: Optional[Any] = None
@@ -196,8 +198,18 @@ class StatusPane:
 
         return "\n".join(lines)
 
+    def _format_subject(self) -> str:
+        subject = self.session_manager.get_current_subject() if self.session_manager else None
+        if subject:
+            return f"\033[1;35mSession: {subject}\033[0m"
+        return ""
+
     def _render(self) -> None:
         self._clear()
+        subject_line = self._format_subject()
+        if subject_line:
+            self._write(subject_line)
+            self._write("")
         self._write(self._format_tasks())
         self._write("")
         self._write(self._format_context())

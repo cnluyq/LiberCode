@@ -115,6 +115,7 @@ def main():
             task_manager=task_manager,
             teammate_manager=teammate_manager,
             lead=lead,
+            session_manager=session_manager,
             refresh_interval=status_refresh,
         )
         status_pane.start()
