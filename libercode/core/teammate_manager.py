@@ -130,12 +130,13 @@ class TeammateManager:
 
         return f"Spawned '{name}' (role: {role})" + (f" in pane" if pty_file else "")
 
-    def spawn_with_history(self, name: str, role: str, restored_messages: list) -> str:
+    def spawn_with_history(self, name: str, role: str, status: str, restored_messages: list) -> str:
         """Spawn a teammate with pre-restored message history (for session recovery).
 
         Args:
             name: Teammate name
             role: Teammate role
+            status: Teammate status (e.g. "working", "idle")
             restored_messages: Full message history to restore
 
         Returns:
@@ -158,15 +159,12 @@ class TeammateManager:
             except Exception:
                 pass
 
-        if member:
-            member["status"] = "working"
-        else:
-            member = {
-                "name": name,
-                "role": role,
-                "status": "working",
-            }
-            self._team_config["members"].append(member)
+        member = {
+            "name": name,
+            "role": role,
+            "status": status,
+        }
+        self._team_config["members"].append(member)
 
         self._save_config()
 

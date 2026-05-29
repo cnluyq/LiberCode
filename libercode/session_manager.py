@@ -536,17 +536,7 @@ class SessionRecoveryManager:
                     _logger.info(f"Restored inbox for {name}")
                 summary["restored"]["teammate_inboxes"] = True
 
-        # Step 4: Restore team config
-        team_config_src = session_path / "team_config.json"
-        if teammate_manager and team_config_src.exists():
-            config_path = getattr(teammate_manager, 'config_path', None)
-            if config_path:
-                shutil.copy2(team_config_src, config_path)
-            teammate_manager.reload_config()
-            summary["restored"]["team_config"] = True
-            _logger.info("Restored team config")
-
-        # Step 5: Restore lead messages
+        # Step 4: Restore lead messages
         lead_src = session_path / "lead.json"
         if lead and lead_src.exists():
             try:
@@ -564,7 +554,7 @@ class SessionRecoveryManager:
                 _logger.error(f"Failed to restore lead messages: {e}")
                 summary["restored"]["lead_messages"] = f"error: {e}"
 
-        # Step 6: Restore token records
+        # Step 5: Restore token records
         token_src = session_path / "token_records.json"
         if token_src.exists():
             try:
@@ -578,12 +568,20 @@ class SessionRecoveryManager:
                 _logger.error(f"Failed to restore token records: {e}")
                 summary["restored"]["token_records"] = f"error: {e}"
 
-        # Step 7: Spawn teammates with restored history
+        # Step 6: Spawn teammates with restored history
         if teammate_manager:
+            team_config_src = session_path / "team_config.json"
             teammates_path = session_path / "teammates"
             spawned = []
-            if teammate_manager._team_config.get("members"):
-                for member in teammate_manager._team_config["members"]:
+
+            if team_config_src.exists():
+                try:
+                    team_config_data = json.loads(team_config_src.read_text())
+                except Exception as e:
+                    _logger.error(f"Failed to load team_config.json: {e}")
+                    team_config_data = {}
+
+                for member in team_config_data.get("members", []):
                     name = member["name"]
                     role = member["role"]
                     status = member.get("status", "working")
@@ -598,9 +596,9 @@ class SessionRecoveryManager:
                             except Exception as e:
                                 _logger.warning(f"Failed to load messages for {name}: {e}")
 
-                    result = teammate_manager.spawn_with_history(name, role, restored_messages)
-                    spawned.append({"name": name, "role": role, "messages": len(restored_messages)})
-                    _logger.info(f"Spawned teammate '{name}' with {len(restored_messages)} messages")
+                    result = teammate_manager.spawn_with_history(name, role, status, restored_messages)
+                    spawned.append({"name": name, "role": role, "status": status, "messages": len(restored_messages)})
+                    _logger.info(f"Spawned teammate '{name}' (role: {role}, status: {status}) with {len(restored_messages)} messages")
 
                     _time.sleep(0.5)
 
