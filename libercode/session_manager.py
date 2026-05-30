@@ -142,6 +142,12 @@ class SessionManager:
             messages = serialize_content(self.lead.messages)
 
         lead_path = session_path / "lead.json"
+
+        if lead_path.exists():
+            existing_data = json.loads(lead_path.read_text())
+            if existing_data.get("messages") == messages:
+                return False
+
         data = {"messages": messages, "saved_at": datetime.now().isoformat()}
         lead_path.write_text(json.dumps(data, indent=2, ensure_ascii=False))
         self._file_mtimes[str(lead_path)] = time.time()
@@ -222,6 +228,12 @@ class SessionManager:
             return False
 
         token_path = session_path / "token_records.json"
+
+        if token_path.exists():
+            existing_data = json.loads(token_path.read_text())
+            if existing_data.get("records") == records:
+                return False
+
         data = {"records": records, "saved_at": datetime.now().isoformat()}
         token_path.write_text(json.dumps(data, indent=2, ensure_ascii=False))
         self._file_mtimes[str(token_path)] = time.time()

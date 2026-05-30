@@ -310,7 +310,6 @@ async def async_repl_loop(lead, message_bus, task_manager, teammate_manager, log
                         if not sessions:
                             tprint("No saved sessions found.")
                         else:
-                            tprint("Available sessions:")
                             for i, sess in enumerate(sessions, 1):
                                 created = sess.get("created_at", "unknown")
                                 updated = sess.get("updated_at", "unknown")
