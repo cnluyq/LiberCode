@@ -309,22 +309,23 @@ class SessionManager:
         async_client = AsyncAnthropic(api_key=self.lead.config.api_key, base_url=self.lead.config.base_url)
 
         history_text = serialize_content(messages)
-        summary_prompt = f"""Based on the following conversation history, summarize the main topic or task into a single concise phrase no more than 50 words. Only output the summary phrase, nothing else.
+        summary_prompt = f"""Based on the following conversation history, summarize the main topic or task into a single concise phrase. The summary must be no more than 50 characters (50个字或字符，中英文均适用). Only output the summary phrase, nothing else.
 
 History:
 {history_text[:3000]}
 
-Summary (max 50 words):"""
+Summary (max 50 characters):"""
 
         try:
-            self._logger.debug("generate_subject: calling LLM...")
+            self._logger.debug(f"generate_subject: calling LLM... with prompt:\n{summary_prompt}")
             response = await async_client.messages.create(
                 model=self.lead.config.model_id,
-                max_tokens=100,
+                max_tokens=8000,
                 messages=[{"role": "user", "content": summary_prompt}],
             )
             self._logger.debug(f"generate_subject: LLM response received, content={response.content}")
             if not response.content:
+                self._logger.debug(f"generate_subject: content filtered or empty (stop_reason={getattr(response, 'stop_reason', None)}), will retry")
                 return None
             summary = response.content[0].text.strip()
             if summary and len(summary) <= 50:
