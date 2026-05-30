@@ -142,6 +142,18 @@ def main():
     return 0
 
 
+async def _subject_generator_loop(session_manager) -> None:
+    """Background loop to generate session subject from lead history."""
+    while True:
+        try:
+            subject = await session_manager.generate_subject_from_history()
+            if subject:
+                return
+        except Exception:
+            pass
+        await asyncio.sleep(2)
+
+
 async def async_repl_loop(lead, message_bus, task_manager, teammate_manager, log, auto_saver=None, session_manager=None, status_pane=None, config=None):
     """Async REPL loop with interrupt support."""
     from libercode.ui.input_handler import input_with_cursor_support
@@ -161,6 +173,10 @@ async def async_repl_loop(lead, message_bus, task_manager, teammate_manager, log
 
     if auto_saver:
         auto_saver.start()
+
+    subject_task = None
+    if session_manager:
+        subject_task = asyncio.create_task(_subject_generator_loop(session_manager))
 
     try:
         while True:
@@ -471,6 +487,12 @@ async def async_repl_loop(lead, message_bus, task_manager, teammate_manager, log
             message = {"role": "user", "content": query}
             await run_llm_with_interrupt(lead, message, log)
     finally:
+        if subject_task and not subject_task.done():
+            subject_task.cancel()
+            try:
+                await subject_task
+            except asyncio.CancelledError:
+                pass
         if auto_saver:
             await auto_saver.stop()
         teammate_manager.close_all_teammates(status_pane=status_pane)

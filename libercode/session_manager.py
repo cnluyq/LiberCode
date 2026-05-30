@@ -290,6 +290,54 @@ class SessionManager:
             self._save_meta()
             self._logger.info(f"Session subject set: {self._current_session.subject}")
 
+    async def generate_subject_from_history(self) -> Optional[str]:
+        """Generate session subject by summarizing lead's history via LLM."""
+        if not self.lead or not self._current_session:
+            return None
+
+        messages = self.lead.messages
+        if not messages:
+            return None
+
+        user_messages = [m for m in messages if isinstance(m, dict) and m.get("role") == "user"]
+        if len(user_messages) < 2:
+            return None
+
+        from anthropic import AsyncAnthropic
+        from libercode.messaging.serialization import serialize_content
+
+        async_client = AsyncAnthropic(api_key=self.lead.config.api_key, base_url=self.lead.config.base_url)
+
+        history_text = serialize_content(messages)
+        summary_prompt = f"""Based on the following conversation history, summarize the main topic or task into a single concise phrase no more than 50 words. Only output the summary phrase, nothing else.
+
+History:
+{history_text[:3000]}
+
+Summary (max 50 words):"""
+
+        try:
+            self._logger.debug("generate_subject: calling LLM...")
+            response = await async_client.messages.create(
+                model=self.lead.config.model_id,
+                max_tokens=100,
+                messages=[{"role": "user", "content": summary_prompt}],
+            )
+            self._logger.debug(f"generate_subject: LLM response received, content={response.content}")
+            if not response.content:
+                return None
+            summary = response.content[0].text.strip()
+            if summary and len(summary) <= 50:
+                self.update_subject(summary)
+                self._logger.info(f"Session subject generated via LLM: {summary}")
+                return summary
+            else:
+                self._logger.debug(f"generate_subject: summary too long or empty, skipping")
+        except Exception as e:
+            self._logger.warning(f"Failed to generate subject via LLM: {e}")
+
+        return None
+
 class AutoSaver:
     """
     Automatic periodic session saver with adaptive interval.
