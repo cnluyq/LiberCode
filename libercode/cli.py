@@ -200,6 +200,8 @@ async def async_repl_loop(lead, message_bus, task_manager, teammate_manager, log
             if query.strip().lower() in ("q", "exit"):
                 log.info("User requested exit")
                 tprint("Cleaning ... ...")
+                if subject_task and not subject_task.done():
+                    subject_task.cancel()
                 teammate_manager.close_all_teammates(status_pane=status_pane)
                 tprint("Goodbye!")
                 break
@@ -349,6 +351,10 @@ async def async_repl_loop(lead, message_bus, task_manager, teammate_manager, log
                         if len(new_subject) > 100:
                             tprint(f"Subject too long: {len(new_subject)} chars (max 100).")
                             continue
+
+                        if subject_task and not subject_task.done():
+                            subject_task.cancel()
+
                         session_manager.update_subject(new_subject)
                         tprint(f"Subject updated: {new_subject[:100]}")
                         continue
@@ -449,6 +455,8 @@ async def async_repl_loop(lead, message_bus, task_manager, teammate_manager, log
                         finally:
                             auto_saver.start()
 
+                        if subject_task and not subject_task.done():
+                            subject_task.cancel()
                         continue
 
 

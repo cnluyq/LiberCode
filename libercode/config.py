@@ -74,10 +74,6 @@ class Config:
         self.session_auto_save_interval = float(os.getenv("LIBERCODE_SESSION_INTERVAL", "1.0"))
         self.session_dir = self.workdir / ".libercode" / "sessions"
 
-        # Handle base_url side effect from original code
-        if self.base_url:
-            os.environ.pop("ANTHROPIC_AUTH_TOKEN", None)
-
         # Initialize async client for interruptible LLM calls
         self.async_client = AsyncAnthropic(api_key=self.api_key, base_url=self.base_url)
 
