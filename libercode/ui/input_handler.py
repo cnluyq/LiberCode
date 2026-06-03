@@ -136,22 +136,35 @@ class SimpleMultiLineInput:
 
     def read_input(self) -> str:
         """Read input with multi-line support."""
-        lines: list[str] = []
+        import os
+        import readline
 
-        while True:
-            try:
-                if not lines:
-                    line = input(self.prompt)
+        orig_term = os.environ.get("TERM", "")
+        os.environ["TERM"] = "dumb"
+        try:
+            readline.parse_and_bind("set disable-completion on")
+            readline.parse_and_bind("set show-all-if-ambiguous off")
+
+            lines: list[str] = []
+
+            while True:
+                try:
+                    if not lines:
+                        line = input(self.prompt)
+                    else:
+                        line = input(" " * len(self._plain_prompt))
+                except (EOFError, KeyboardInterrupt):
+                    raise
+
+                if line.endswith(self.multiline_char):
+                    lines.append(line[:-1])
                 else:
-                    line = input(" " * len(self._plain_prompt))
-            except (EOFError, KeyboardInterrupt):
-                raise
-            
-            if line.endswith(self.multiline_char):
-                lines.append(line[:-1])
-            else:
-                lines.append(line)
-        return "\n".join(lines)
+                    lines.append(line)
+                    break
+
+            return "\n".join(lines)
+        finally:
+            os.environ["TERM"] = orig_term
 
 
 def get_input(prompt=None, multiline_char: str = "\\") -> str:
@@ -237,22 +250,33 @@ def _strip_ansi(text: str) -> str:
 
 def _simple_multiline_input(prompt: str, multiline_char: str = "\\") -> str:
     """Fallback simple multi-line input without prompt_toolkit."""
-    lines: list[str] = []
-    plain_prompt = _strip_ansi(prompt)
+    import os
+    import readline
 
-    while True:
-        try:
-            if not lines:
-                line = input(prompt)
+    orig_term = os.environ.get("TERM", "")
+    os.environ["TERM"] = "dumb"
+    try:
+        readline.parse_and_bind("set disable-completion on")
+        readline.parse_and_bind("set show-all-if-ambiguous off")
+
+        lines: list[str] = []
+        plain_prompt = _strip_ansi(prompt)
+
+        while True:
+            try:
+                if not lines:
+                    line = input(prompt)
+                else:
+                    line = input(" " * len(plain_prompt))
+            except (EOFError, KeyboardInterrupt):
+                raise
+
+            if line.endswith(multiline_char):
+                lines.append(line[:-1])
             else:
-                line = input(" " * len(plain_prompt))
-        except (EOFError, KeyboardInterrupt):
-            raise
+                lines.append(line)
+                break
 
-        if line.endswith(multiline_char):
-            lines.append(line[:-1])
-        else:
-            lines.append(line)
-            break
-
-    return "\n".join(lines)
+        return "\n".join(lines)
+    finally:
+        os.environ["TERM"] = orig_term

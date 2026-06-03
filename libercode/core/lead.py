@@ -192,6 +192,11 @@ class LeadAgent:
             self.messages.append({"role": "assistant", "content": response.content})
 
             if response.stop_reason != "tool_use":
+                if self._has_active_teammates():
+                    self._logger.info(f"LLM stop_reason is '{response.stop_reason}' but teammates still active, continuing monitoring")
+                    await asyncio.sleep(self.config.poll_interval)
+                    self.messages.append({"role": "user", "content": "Still teammates working, keep monitoring. Check inbox for new messages and review task/teammate status."})
+                    continue
                 self._logger.debug(f"LLM loop returned as stop_reason ({response.stop_reason}) is not 'tool_use'.")
                 return
 
@@ -296,6 +301,14 @@ class LeadAgent:
         """Get lead agent tools."""
         from libercode.tools.lead_tools import get_lead_tools
         return get_lead_tools()
+
+    def _has_active_teammates(self) -> bool:
+        """Check if any teammates are still working or idle."""
+        for name in self.teammate_manager.member_names():
+            member = self.teammate_manager._find_member(name)
+            if member and member.get("status") in ("working", "idle"):
+                return True
+        return False
 
     def clear_messages(self) -> None:
         """Clear lead agent's message history."""
