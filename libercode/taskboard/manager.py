@@ -6,7 +6,7 @@ Provides CRUD operations for tasks with dependency tracking.
 import json
 import shutil
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from libercode.taskboard.models import Task, TaskStatus
 from libercode.exceptions import TaskNotFoundError
@@ -240,6 +240,65 @@ class TaskManager:
             lines.append(f"{marker} #{task.id}: {task.subject}{blocked}")
 
         return "\n".join(lines)
+
+    def scan_unclaimed_tasks(self, role: str, name: str) -> List[Dict]:
+        """
+        Scan for unclaimed tasks matching role and name.
+
+        Args:
+            role: Teammate role to filter by
+            name: Teammate name to filter by
+
+        Returns:
+            List of unclaimed task dicts
+        """
+        all_tasks = []
+        for f in sorted(self.tasks_dir.glob("task_*.json")):
+            task_data = json.loads(f.read_text())
+            if not (
+                task_data.get("status") == "pending"
+                and not task_data.get("owner")
+                and not task_data.get("blockedBy")
+            ):
+                continue
+
+            assigned_to = task_data.get("assigned_to")
+            if assigned_to and assigned_to != name:
+                continue
+
+            required_role = task_data.get("required_role", "")
+            if required_role and required_role != role:
+                continue
+
+            all_tasks.append(task_data)
+
+        return all_tasks
+
+    def claim_task(self, task_id: int, owner: str) -> Optional[Task]:
+        """
+        Atomically claim a task for an owner.
+
+        Args:
+            task_id: Task ID to claim
+            owner: Owner name to assign
+
+        Returns:
+            Task if claimed successfully, None if task not available
+
+        Raises:
+            TaskNotFoundError: If task doesn't exist
+        """
+        task = self._load(task_id)
+
+        if task.owner:
+            return None
+        if task.status != TaskStatus.PENDING:
+            return None
+
+        task.owner = owner
+        task.status = TaskStatus.IN_PROGRESS
+        self._save(task)
+        return task
 
     def restore_from_dir(self, source_dir: Path) -> int:
         """Restore tasks from a session backup directory.

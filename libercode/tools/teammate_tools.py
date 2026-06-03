@@ -255,9 +255,17 @@ def create_teammate_tool_handlers(
             if required_role and required_role != teammate.role:
                 return json.dumps({"error": f"Role mismatch. Task requires {required_role}, you are {teammate.role}"}, ensure_ascii=False)
 
-            success = teammate._claim_task(task_data)
-            if success:
-                return json.dumps({"success": True, "message": f"Claimed task #{task_id}"}, ensure_ascii=False)
+            claimed = task_manager.claim_task(task_id, teammate.name)
+            if claimed:
+                return json.dumps({
+                    "success": True,
+                    "message": f"Claimed task #{task_id}",
+                    "task": {
+                        "id": claimed.id,
+                        "subject": claimed.subject,
+                        "description": claimed.description,
+                    }
+                }, ensure_ascii=False)
             else:
                 return json.dumps({"error": "Failed to claim task"}, ensure_ascii=False)
         except Exception as e:

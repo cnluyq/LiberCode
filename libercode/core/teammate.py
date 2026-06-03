@@ -299,13 +299,24 @@ class TeammateAgent:
                     break
 
                 # Check for unclaimed tasks
-                unclaimed = self._scan_unclaimed_tasks()
+                unclaimed = self.task_manager.scan_unclaimed_tasks(self.role, self.name)
                 if unclaimed:
-                    task = unclaimed[0]
+                    task_data = unclaimed[0]
+                    task_id = task_data["id"]
                     # Try to claim task
                     try:
-                        claimed = self._claim_task(task)
+                        claimed = self.task_manager.claim_task(task_id, self.name)
                         if claimed:
+                            task_prompt = (
+                                f"<auto-claimed>Task #{claimed.id}: \n"
+                                f"Subject: {claimed.subject}\n"
+                                f"Description: {claimed.description}\n"
+                                f"</auto-claimed>\n"
+                                f"Note: When the task complete, send message to 'lead' with task-id and status to notify lead to update task status. Then use idle tool to back to idle state."
+                            )
+                            self.messages.append({"role": "user", "content": task_prompt})
+
+                            self._logger.info(f"Claimed task: {task_prompt}")
                             resume = True
                             self._set_status("working")
                             break
@@ -380,81 +391,3 @@ class TeammateAgent:
         if validation_warning:
             result = f"{result}\n\n{validation_warning}"
         return result
-
-    def _scan_unclaimed_tasks(self) -> List[Dict]:
-        """Scan for unclaimed tasks matching teammate's role."""
-        from libercode.taskboard.models import TaskStatus
-
-        all_tasks = []
-        for f in sorted(self.task_manager.tasks_dir.glob("task_*.json")):
-            task_data = json.loads(f.read_text())
-            if not (
-                task_data.get("status") == "pending"
-                and not task_data.get("owner")
-                and not task_data.get("blockedBy")
-            ):
-                continue
-
-            assigned_to = task_data.get("assigned_to")
-            if assigned_to and assigned_to != self.name:
-                continue
-
-            required_role = task_data.get("required_role", "")
-            if required_role and required_role != self.role:
-                continue
-
-            all_tasks.append(task_data)
-
-        if all_tasks:
-            self._logger.debug(f"Found {len(all_tasks)} unclaimed tasks matching role {self.role}")
-
-        return all_tasks
-
-    def _claim_task(self, task: Dict) -> bool:
-        """Claim a task."""
-        from libercode.taskboard.models import TaskStatus
-
-        task_id = task["id"]
-        task_file = self.task_manager.tasks_dir / f"task_{task_id}.json"
-
-        if not task_file.exists():
-            return False
-
-        current_task = json.loads(task_file.read_text())
-
-        # Check if still available
-        if current_task.get("owner"):
-            return False
-        if current_task.get("status") != "pending":
-            return False
-
-        # Claim it
-        current_task["owner"] = self.name
-        current_task["status"] = "in_progress"
-        task_file.write_text(json.dumps(current_task, indent=2, ensure_ascii=False))
-
-        # Create task prompt
-        task_prompt = (
-            f"<auto-claimed>Task #{task['id']}: \n"
-            f"Subject: {task['subject']}\n"
-            f"Description: {task.get('description', '')}\n"
-            f"</auto-claimed>\n"
-            f"Note: When the task complete, send message to 'lead' with task-id and status to notify lead to update task status. Then use idle tool to back to idle state."
-        )
-
-        # Log task claim
-        log_task_event(task_id, 'claimed', {'teammate': self.name})
-        self._logger.info(f"Claimed task: {task_prompt}")
-
-        # Add to messages
-        if len(self.messages) <= 3:
-            # Add identity block
-            self.messages.insert(0, {
-                "role": "user",
-                "content": f"<identity>You are '{self.name}', role: {self.role}, team: default. Continue your work.</identity>",
-            })
-            self.messages.insert(1, {"role": "assistant", "content": f"I am {self.name}. Continuing."})
-
-        self.messages.append({"role": "user", "content": task_prompt})
-
-        return True
