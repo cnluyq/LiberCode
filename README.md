@@ -27,35 +27,42 @@ LiberCode is a multi-agent system that orchestrates autonomous AI teammates to c
 - Type-safe data models with comprehensive docstrings
 - Custom exception hierarchy for robust error handling
 - Token usage tracking across all LLM interactions
-- Configurable via environment variables
+- Configurable via `libercode.json` project config file
 
 ## Architecture
 
 ```
 libercode/
-├── core/              # Core agent implementations
-│   ├── lead.py        # Lead agent orchestrator
-│   └── teammate.py    # Autonomous teammate agent
-├── messaging/         # Inter-agent communication
-│   ├── protocol.py    # Message types and serialization
-│   ├── bus.py         # JSONL message bus
-│   └── serialization.py
-├── taskboard/         # Task management
-│   ├── models.py      # Task data model with dependencies
-│   └── manager.py     # Task CRUD operations
-├── tools/             # Agent tool definitions
-│   ├── base.py        # File operations and bash tools
-│   ├── lead_tools.py  # Lead agent tools (14 tools)
-│   └── teammate_tools.py  # Teammate tools
-├── ui/                # User interface components
-│   ├── tmux.py        # Tmux pane management
-│   └── output.py      # Thread-safe output handling
-├── utils/             # Utilities
-│   └── token_tracker.py  # Token usage tracking
-├── worktree/          # Git worktree management (planned)
-├── config.py          # Configuration management
-├── exceptions.py      # Custom exception hierarchy
-└── cli.py             # REPL interface
+├── core/ # Core agent implementations
+│ ├── lead.py # Lead agent orchestrator
+│ ├── teammate.py # Autonomous teammate agent
+│ ├── teammate_manager.py # Teammate lifecycle management
+│ └── interrupt_handler.py # Ctrl+C cancellation support
+├── messaging/ # Inter-agent communication
+│ ├── protocol.py # Message types and serialization
+│ ├── bus.py # JSONL message bus
+│ └── serialization.py # Anthropic SDK object → JSON-serializable
+├── taskboard/ # Task management
+│ ├── models.py # Task data model with dependencies
+│ └── manager.py # Task CRUD operations
+├── tools/ # Agent tool definitions
+│ ├── base.py # File/bash tools + dangerous command policy
+│ ├── lead_tools.py # Lead agent tools (17 tools)
+│ ├── teammate_tools.py # Teammate tools (13 tools)
+│ ├── validator.py # Tool input schema validation and coercion
+│ └── worktree_tools.py # Worktree tools (DEFINED BUT NOT WIRED)
+├── ui/ # User interface components
+│ ├── tmux.py # Tmux pane management
+│ └── output.py # Thread-safe output handling
+├── utils/ # Utilities
+│ ├── logging.py # Structured logging (rotating files)
+│ └── token_tracker.py # Token usage tracking
+├── worktree/ # Git worktree isolation (DEFINED BUT NOT WIRED)
+├── prompts/ # System prompts
+├── config.py # libercode.json loading, env loading, AsyncAnthropic client init
+├── session_manager.py # Session save/restore/auto-save
+├── exceptions.py # Custom exception hierarchy
+└── cli.py # REPL loop, session management, agent orchestration
 ```
 
 ## Installation
@@ -83,13 +90,86 @@ pip uninstall libercode
 
 ### Configuration
 
+LiberCode reads project-level settings from `libercode.json` in the working directory. API credentials are always read from environment variables / `.env` and should **not** be placed in the config file.
+
 ```bash
 export LLM_API_KEY=<your-api-key>
 export MODEL_ID=<model_id>
 export LLM_BASE_URL=<llm_provider_url> # Base URL (optional for anthropic models; required for other anthropic-compatible providers)
 #such as https://api.deepseek.com/anthropic, http://127.0.0.1:3456 for ccr, etc.
+```
 
-export LIBERCODE_DEBUG=true  #set debug mode
+#### libercode.json
+
+```jsonc
+{
+  // Runtime
+  "debug": false,                          // Enable debug logging (default: false)
+  "status_refresh": 5.0,                   // Status pane refresh interval in seconds; 0 disables pane (default: 5.0)
+
+  // Session auto-save
+  "session_auto_save": true,               // Enable auto-save (default: true)
+  "session_auto_save_interval": 1.0,       // Auto-save interval in seconds (default: 1.0)
+
+  // Dangerous command control
+  "dangerous_command_policy": "confirm",    // "deny" (block) | "allow" (pass) | "confirm" (ask user)
+  "dangerous_command_patterns_override": null,  // Array to replace defaults entirely; [] disables all checking
+  "dangerous_command_patterns_extra": []    // Array of additional patterns to append to defaults
+}
+```
+
+If `libercode.json` does not exist, built-in defaults are used for every setting.
+
+#### Dangerous Command Patterns
+
+Each pattern is a string in `[type:]pattern` format:
+
+| Type | Example | Behavior |
+|------|---------|----------|
+| `prefix` (default) | `sudo` or `prefix:sudo` | Substring match (`"sudo" in command`) |
+| `glob` | `glob:rm -rf *` | fnmatch shell-style wildcard on the full command |
+| `regex` | `regex:^dd\\s+if=` | Regular expression search |
+
+**Default patterns** (active when no override is set):
+
+```json
+[
+  "prefix:rm -rf /",
+  "prefix:sudo",
+  "prefix:shutdown",
+  "prefix:reboot"
+]
+```
+
+**Override example** — replace defaults with your own list:
+
+```json
+{
+  "dangerous_command_patterns_override": [
+    "prefix:sudo",
+    "glob:rm *",
+    "regex:^dd\\s"
+  ]
+}
+```
+
+**Empty override** — disable all dangerous command checking:
+
+```json
+{
+  "dangerous_command_patterns_override": []
+}
+```
+
+**Extra example** — append patterns to the defaults:
+
+```json
+{
+  "dangerous_command_patterns_extra": [
+    "glob:curl *",
+    "regex:^python3.*http"
+ ]
+}
 ```
 
 ### Quick Start
@@ -117,14 +197,18 @@ Press Ctrl+C to interrupt LLM processing
 
 ### REPL Commands
 
-```
-[LiberCode] ❯❯ Create a Python script to analyze CSV files
-[LiberCode] ❯❯ /team # List all teammates
-[LiberCode] ❯❯ /tasks # Show task board
-[LiberCode] ❯❯ /inbox # Check lead's messages
-[LiberCode] ❯❯ /tokens # Show token usage stats
-[LiberCode] ❯❯ q # Quit
-```
+| Command | Description |
+|---------|-------------|
+| `/init` | Regenerate AGENTS.md |
+| `/review [args]` | Code review |
+| `/team` | List teammates |
+| `/tasks` | Show task board |
+| `/inbox` | Check lead's messages |
+| `/tokens` | Token usage stats |
+| `/sessions [list\|restore\|delete\|resubject]` | Session management |
+| `/clear [name\|all]` | Clear message history |
+| `q` / `exit` | Quit |
+| `!<cmd>` | Run shell command directly from REPL |
 
 ### Multi-line Input
 
@@ -156,13 +240,6 @@ Copy multi-line text from clipboard and paste with Ctrl+V. The content will be i
 - **Left/Right Arrow Keys**: Move cursor within the input text
 - **Backspace**: Delete character before cursor
 - **Enter**: Submit input (or continue if line ends with `\`)
-[LiberCode] ❯❯ Create a Python script to analyze CSV files
-[LiberCode] ❯❯ /team          # List all teammates
-[LiberCode] ❯❯ /tasks         # Show task board
-[LiberCode] ❯❯ /inbox         # Check lead's messages
-[LiberCode] ❯❯ /tokens        # Show token usage stats
-[LiberCode] ❯❯ q              # Quit
-```
 
 ### Example Workflow
 
@@ -229,7 +306,7 @@ Agents communicate via JSONL inbox files in `.team/inbox/`:
 
 ## Tools Available
 
-### Lead Agent Tools (14)
+### Lead Agent Tools (17)
 - File operations: `read_file`, `write_file`, `edit_file`
 - Shell execution: `bash`
 - Task management: `task_create`, `task_update`, `task_list`, `task_get`
@@ -292,4 +369,4 @@ Coding assisted-by AI
 
 /init and /review prompts are referred from opencode project
 
-Test and run on Linux. May be some issue on MacOS for status pane output, disable it by 'export LIBERCODE_STATUS_REFRESH=0.0'
+Test and run on Linux. May be some issue on MacOS for status pane output, disable it by setting `"status_refresh": 0` in `libercode.json`

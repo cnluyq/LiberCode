@@ -28,6 +28,7 @@ from libercode.ui.output import tprint
 from libercode.ui.status_pane import StatusPane
 from libercode.ui import is_tmux_available
 from libercode.session_manager import SessionManager, AutoSaver, SessionRecoveryManager, SessionMeta
+from libercode.tools.base import set_dangerous_command_config
 
 _current_task = None
 
@@ -72,6 +73,18 @@ def main():
         tprint(f"Configuration error: {e}")
         return 1
 
+    def _confirm_dangerous_command(cmd: str) -> bool:
+        """Prompt user to confirm execution of a dangerous command."""
+        tprint(f"\n⚠ Dangerous command detected: {cmd}")
+        try:
+            answer = input("Allow execution? [y/N] ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            return False
+        return answer in ("y", "yes")
+
+    set_dangerous_command_config(config, _confirm_dangerous_command)
+    log.info(f"Dangerous command policy: {config.dangerous_command_policy}, patterns: {config.dangerous_command_patterns}")
+
     client = Anthropic(api_key=config.api_key, base_url=config.base_url)
     log.info("Anthropic client initialized")
 
@@ -109,7 +122,7 @@ def main():
     log.info("Session manager initialized")
 
     status_pane = None
-    status_refresh = float(os.getenv("LIBERCODE_STATUS_REFRESH", "5.0"))
+    status_refresh = config.status_refresh
     if status_refresh > 0 and is_tmux_available():
         status_pane = StatusPane(
             task_manager=task_manager,
@@ -117,6 +130,7 @@ def main():
             lead=lead,
             session_manager=session_manager,
             refresh_interval=status_refresh,
+            config=config,
         )
         status_pane.start()
         log.info(f"Status pane started (refresh={status_refresh}s)")

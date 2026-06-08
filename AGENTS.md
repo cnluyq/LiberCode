@@ -7,7 +7,7 @@ Multi-agent AI coding assistant. Lead agent orchestrates autonomous teammate age
 ```bash
 export LLM_API_KEY=<key>
 export MODEL_ID=<model-id>
-export LLM_BASE_URL=<url>  # optional for Anthropic; required for other providers
+export LLM_BASE_URL=<url> # optional for Anthropic; required for other providers
 pip install -r requirements.txt
 pip install .
 ```
@@ -17,24 +17,97 @@ No tests, linter, or typechecker configured.
 ## Running
 
 ```bash
-tmux new-session -s LiberCode "libercode; echo 'press enter to exit...'; read"  # full UI (status pane)
-libercode                                                          # no tmux (no status pane)
-python -m libercode                                                # alternative entry point
+tmux new-session -s LiberCode "libercode; echo 'press enter to exit...'; read" # full UI (status pane)
+libercode # no tmux (no status pane)
+python -m libercode # alternative entry point
 ```
 
 Entry point: `libercode/cli.py:main` (registered in `pyproject.toml` as `libercode` console script).
 
-## Environment Variables
+## Configuration
 
-| Variable | Default | Notes |
-|----------|---------|-------|
-| `LLM_API_KEY` | (required) | Anthropic API key |
-| `MODEL_ID` | (required) | Model identifier |
-| `LLM_BASE_URL` | none | Required for non-Anthropic providers |
-| `LIBERCODE_DEBUG` | `false` | Set `true` for debug logging |
-| `LIBERCODE_STATUS_REFRESH` | `5.0` | Set `0.0` to disable status pane (macOS workaround) |
-| `LIBERCODE_SESSION_AUTO_SAVE` | `true` | Auto-save sessions |
-| `LIBERCODE_SESSION_INTERVAL` | `1.0` | Auto-save interval (seconds) |
+LiberCode reads project-level settings from `libercode.json` in the working directory. API credentials (`LLM_API_KEY`, `MODEL_ID`, `LLM_BASE_URL`) are always read from environment variables / `.env` and should **not** be placed in the config file.
+
+### libercode.json
+
+```jsonc
+{
+  // Runtime
+  "debug": false,                          // Enable debug logging (default: false)
+  "status_refresh": 5.0,                   // Status pane refresh interval in seconds; 0 disables pane (default: 5.0)
+
+  // Session auto-save
+  "session_auto_save": true,               // Enable auto-save (default: true)
+  "session_auto_save_interval": 1.0,       // Auto-save interval in seconds (default: 1.0)
+
+  // Dangerous command control
+  "dangerous_command_policy": "deny",      // "deny" (block) | "allow" (pass) | "confirm" (ask user)
+  "dangerous_command_patterns_override": null,  // Array to replace defaults entirely; [] disables all checking
+  "dangerous_command_patterns_extra": []   // Array of additional patterns to append to defaults
+}
+```
+
+If `libercode.json` does not exist, built-in defaults are used for every setting.
+
+### Dangerous Command Patterns
+
+Each pattern is a string in `[type:]pattern` format:
+
+| Type | Example | Behavior |
+|------|---------|----------|
+| `prefix` (default) | `sudo` or `prefix:sudo` | Substring match (`"sudo" in command`) |
+| `glob` | `glob:rm -rf *` | fnmatch shell-style wildcard on the full command |
+| `regex` | `regex:^dd\\s+if=` | Regular expression search |
+
+**Default patterns** (active when no override is set):
+
+```json
+[
+  "prefix:rm -rf /",
+  "prefix:sudo",
+  "prefix:shutdown",
+  "prefix:reboot"
+]
+```
+
+**Override example** — replace defaults with your own list:
+
+```json
+{
+  "dangerous_command_patterns_override": [
+    "prefix:sudo",
+    "glob:rm *",
+    "regex:^dd\\s"
+  ]
+}
+```
+
+**Empty override** — disable all dangerous command checking:
+
+```json
+{
+  "dangerous_command_patterns_override": []
+}
+```
+
+**Extra example** — append patterns to the defaults:
+
+```json
+{
+  "dangerous_command_patterns_extra": [
+    "glob:curl *",
+    "regex:^python3.*http"
+  ]
+}
+```
+
+### Environment Variables
+
+| Variable | Notes |
+|----------|-------|
+| `LLM_API_KEY` | (required) Anthropic API key |
+| `MODEL_ID` | (required) Model identifier |
+| `LLM_BASE_URL` | Required for non-Anthropic providers |
 
 ## Architecture
 
@@ -53,12 +126,12 @@ libercode/
   taskboard/models.py       — Task dataclass (dependencies use blockedBy in JSON)
   tools/lead_tools.py       — 17 lead tools
   tools/teammate_tools.py   — 13 teammate tools
-  tools/base.py             — Shared file/bash tool implementations
+  tools/base.py             — Shared file/bash tool implementations + dangerous command policy
   tools/validator.py        — Tool input schema validation and coercion
   tools/worktree_tools.py   — 8 worktree tools (DEFINED BUT NOT WIRED)
   worktree/                 — Git worktree isolation (DEFINED BUT NOT WIRED)
   ui/                       — Tmux panes, status display, input, output
-  config.py                 — Env loading, paths, AsyncAnthropic client init
+  config.py                 — libercode.json loading, env loading, AsyncAnthropic client init
   cli.py                    — REPL loop, session management, agent orchestration
   session_manager.py        — Session save/restore/auto-save
   exceptions.py             — Custom exception hierarchy
@@ -99,7 +172,8 @@ These runtime directories (`.team/`, `.tasks/`) are cleaned up on exit unless se
 - Both lead and teammate agents read `AGENTS.md` or `CLAUDE.md` from project root as `<project_instructions>` — injected once, never re-injected
 - Task JSON files use legacy key `blockedBy` in serialization (`Task.from_dict` accepts both `blockedBy` and `blocked_by`, but `to_dict` always writes `blockedBy`)
 - Prompts are shipped as package data (`libercode/prompts/*.txt`) via `pyproject.toml` `[tool.setuptools.package-data]`
-- `Config.__init__` calls `load_dotenv(override=False)` — existing env vars take priority over `.env`
+- `Config.__init__` loads `libercode.json` from cwd then calls `load_dotenv(override=False)` — existing env vars take priority over `.env`
+- API credentials (`LLM_API_KEY`, `MODEL_ID`, `LLM_BASE_URL`) must be in env vars / `.env`, never in `libercode.json`
 - Console logging is set to ERROR level by default; file logging is DEBUG
 
 ## Extending

@@ -16,40 +16,6 @@ from libercode.utils.token_tracker import TokenTracker
 from libercode.ui.tmux import create_balanced_pane, get_pane_by_tty, ensure_border_status, close_tmux_pane
 
 
-CONTEXT_WINDOW_SIZE = 1_000_000
-
-def _load_lead_system_prompt(workdir: Path) -> str:
-    path = Path(__file__).parent.parent / "prompts" / "lead_system.txt"
-    return path.read_text(encoding="utf-8").format(workdir=workdir)
-
-def _load_teammate_system_prompt(name: str, role: str, workdir: Path) -> str:
-    path = Path(__file__).parent.parent / "prompts" / "teammate_system.txt"
-    return path.read_text(encoding="utf-8").format(
-        name=name, role=role, team_name="default", workdir=workdir
-    )
-
-def _text_tokens(text: str) -> int:
-    return len(text.encode()) // 2
-
-
-def _count_agent_tokens(messages: List[Dict], system: str) -> int:
-    if not messages:
-        return 0
-    total = _text_tokens(system)
-    for msg in messages:
-        content = msg.get("content", "")
-        if isinstance(content, list):
-            for block in content:
-                if hasattr(block, "text"):
-                    total += _text_tokens(block.text)
-                elif isinstance(block, dict):
-                    total += _text_tokens(str(block.get("text", "")))
-        elif isinstance(content, str):
-            total += _text_tokens(content)
-        total += _text_tokens(msg.get("role", "user"))
-    return total
-
-
 class StatusPane:
     """
     Displays execution process info in a dedicated tmux pane.
@@ -67,6 +33,7 @@ class StatusPane:
         session_manager=None,
         refresh_interval: float = 1.0,
         pane_title: str = "Status",
+        config=None,
     ):
         self.task_manager = task_manager
         self.teammate_manager = teammate_manager
@@ -74,10 +41,17 @@ class StatusPane:
         self.session_manager = session_manager
         self.refresh_interval = refresh_interval
         self.pane_title = pane_title
+        self.config = config
         self._file: Optional[Any] = None
         self._pane_id: Optional[str] = None
         self._running = False
         self._thread: Optional[threading.Thread] = None
+
+    def _get_context_window(self, model_id: str) -> int:
+        if self.config:
+            context, _ = self.config.get_model_config(model_id)
+            return context
+        return 1_000_000
 
     def start(self) -> None:
         if self._running:
@@ -153,16 +127,16 @@ class StatusPane:
         tracker = TokenTracker.get_tracker()
         total_summary = tracker.get_total_summary()
         caller_summary = tracker.get_caller_summary()
-        lead_system = _load_lead_system_prompt(self.lead.config.workdir)
-
         lines = ["\033[1;36m=== Context & Tokens ===\033[0m", ""]
 
         lines.append("\033[1;33m── Lead ──\033[0m")
-        lead_tokens = _count_agent_tokens(self.lead.messages, lead_system)
-        lead_ratio = min(lead_tokens / CONTEXT_WINDOW_SIZE, 1.0)
+        lead_records = tracker.get_records_by_caller("lead")
+        lead_tokens = lead_records[-1].input_tokens if lead_records else 0
+        lead_context_window = self._get_context_window(self.lead.real_time_model_id)
+        lead_ratio = min(lead_tokens / lead_context_window, 1.0)
         lead_record = caller_summary.get("lead", {})
         lines.append(f"  Model: \033[37m{self.lead.real_time_model_id}\033[0m")
-        lines.append(f"  Context:\033[37m{lead_ratio*100:.0f}%\033[0m used(\033[37m{lead_tokens:,}\033[0m/\033[37m{CONTEXT_WINDOW_SIZE:,}\033[0m)  Message: \033[37m{len(self.lead.messages)}\033[0m")
+        lines.append(f"  Context:\033[37m{lead_ratio*100:.0f}%\033[0m used(\033[37m{lead_tokens:,}\033[0m/\033[37m{lead_context_window:,}\033[0m) Calls: \033[37m{tracker.get_call_count("lead")}\033[0m")
         lines.append(f"  Consumed Tokens: \033[37m{lead_record.get('input_tokens', 0):,}\033[0min / \033[37m{lead_record.get('output_tokens', 0):,}\033[0mout")
 
         lines.append("")
@@ -176,15 +150,17 @@ class StatusPane:
                 status = member.get("status", "unknown") if member else "unknown"
                 teammate = self.teammate_manager.get_teammate(name)
                 if teammate:
-                    tm_system = _load_teammate_system_prompt(name, member.get("role", ""), teammate.config.workdir)
-                    tokens = _count_agent_tokens(teammate.messages, tm_system)
+                    tm_records = tracker.get_records_by_caller(name)
+                    tokens = tm_records[-1].input_tokens if tm_records else 0
                 else:
                     tokens = 0
-                ratio = min(tokens / CONTEXT_WINDOW_SIZE, 1.0)
+                model_id = teammate.real_time_model_id if teammate else "N/A"
+                tm_context_window = self._get_context_window(model_id)
+                ratio = min(tokens / tm_context_window, 1.0)
                 tm_record = caller_summary.get(name, {})
                 status_color = {"working": "32", "idle": "33", "shutdown": "31"}.get(status, "37")
-                lines.append(f"  \033[1;{status_color}m{name}\033[0m(\033[90m{status}\033[0m)  Model: \033[37m{teammate.real_time_model_id if teammate else 'N/A'}\033[0m")
-                lines.append(f"    Context:\033[37m{ratio*100:.0f}%\033[0m used(\033[37m{tokens:,}\033[0m/\033[37m{CONTEXT_WINDOW_SIZE:,}\033[0m)  Message: \033[37m{len(teammate.messages) if teammate else 0}\033[0m")
+                lines.append(f"  \033[1;{status_color}m{name}\033[0m(\033[90m{status}\033[0m)  Model: \033[37m{model_id}\033[0m")
+                lines.append(f"    Context:\033[37m{ratio*100:.0f}%\033[0m used(\033[37m{tokens:,}\033[0m/\033[37m{tm_context_window:,}\033[0m) Calls: \033[37m{tracker.get_call_count(name)}\033[0m")
                 lines.append(f"    Consumed Tokens: \033[37m{tm_record.get('input_tokens', 0):,}\033[0min / \033[37m{tm_record.get('output_tokens', 0):,}\033[0mout")
 
         lines.append("")

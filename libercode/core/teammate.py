@@ -281,6 +281,8 @@ class TeammateAgent:
                         break
 
             # -- IDLE PHASE: poll for inbox messages and unclaimed tasks --
+            tprint(f"Teammate {self.name} entering state of idle")
+            self._logger.info(f"Teammate {self.name} entering state of idle")
             resume = False
             polls = self.config.idle_timeout // max(self.config.poll_interval, 1)
             for _ in range(polls):

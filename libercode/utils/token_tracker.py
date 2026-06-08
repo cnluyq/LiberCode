@@ -82,6 +82,17 @@ class TokenTracker:
         """Get all records for a specific caller."""
         return [r for r in self._records if r.caller == caller]
 
+    def get_call_count(self, caller: str) -> int:
+        """Get the number of LLM calls made by a specific caller.
+
+        Args:
+            caller: Name of the caller (e.g. "lead" or a teammate name)
+
+        Returns:
+            Number of LLM calls made by the caller
+        """
+        return sum(1 for r in self._records if r.caller == caller)
+
     def get_records_by_model(self, model: str) -> List[TokenRecord]:
         """Get all records for a specific model."""
         return [r for r in self._records if r.model == model]
