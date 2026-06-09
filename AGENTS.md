@@ -33,21 +33,41 @@ LiberCode reads project-level settings from `libercode.json` in the working dire
 ```jsonc
 {
   // Runtime
-  "debug": false,                          // Enable debug logging (default: false)
-  "status_refresh": 5.0,                   // Status pane refresh interval in seconds; 0 disables pane (default: 5.0)
+  "debug": false, // Enable debug logging (default: false)
+  "status_refresh": 5.0, // Status pane refresh interval in seconds; 0 disables pane (default: 5.0)
 
   // Session auto-save
-  "session_auto_save": true,               // Enable auto-save (default: true)
-  "session_auto_save_interval": 1.0,       // Auto-save interval in seconds (default: 1.0)
+  "session_auto_save": true, // Enable auto-save (default: true)
+  "session_auto_save_interval": 1.0, // Auto-save interval in seconds (default: 1.0)
 
   // Dangerous command control
-  "dangerous_command_policy": "deny",      // "deny" (block) | "allow" (pass) | "confirm" (ask user)
-  "dangerous_command_patterns_override": null,  // Array to replace defaults entirely; [] disables all checking
-  "dangerous_command_patterns_extra": []   // Array of additional patterns to append to defaults
+  "dangerous_command_policy": "deny", // "deny" (block) | "allow" (pass) | "confirm" (ask user)
+  "dangerous_command_patterns_override": null, // Array to replace defaults entirely; [] disables all checking
+  "dangerous_command_patterns_extra": [] // Array of additional patterns to append to defaults
 }
 ```
 
 If `libercode.json` does not exist, built-in defaults are used for every setting.
+
+### Model Configuration (3-tier priority)
+
+Model `context_window` and `output_max` are resolved per-field in this order:
+
+1. **`libercode.json`** `models` entry — user-level overrides (highest priority)
+2. **`models.json`** — system-level defaults shipped with the package (`libercode/models.json`)
+3. **Hardcoded defaults** — `default_context_window` (256,000) and `default_output_max` (8,192)
+
+**Example** — override a single model's context window in `libercode.json`:
+
+```jsonc
+{
+  "models": {
+    "my-custom-model": { "context_window": 128000, "output_max": 4096 }
+  }
+}
+```
+
+For `my-custom-model`: uses 128000 / 4096 from `libercode.json`. For any model not in `libercode.json` or `models.json`: uses 256000 (hardcoded `default_context_window`) and 8192 (hardcoded `default_output_max`).
 
 ### Dangerous Command Patterns
 
@@ -132,6 +152,7 @@ libercode/
   worktree/                 — Git worktree isolation (DEFINED BUT NOT WIRED)
   ui/                       — Tmux panes, status display, input, output
   config.py                 — libercode.json loading, env loading, AsyncAnthropic client init
+  models.json               — System-level model defaults (context_window / output_max per model)
   cli.py                    — REPL loop, session management, agent orchestration
   session_manager.py        — Session save/restore/auto-save
   exceptions.py             — Custom exception hierarchy
@@ -172,6 +193,7 @@ These runtime directories (`.team/`, `.tasks/`) are cleaned up on exit unless se
 - Both lead and teammate agents read `AGENTS.md` or `CLAUDE.md` from project root as `<project_instructions>` — injected once, never re-injected
 - Task JSON files use legacy key `blockedBy` in serialization (`Task.from_dict` accepts both `blockedBy` and `blocked_by`, but `to_dict` always writes `blockedBy`)
 - Prompts are shipped as package data (`libercode/prompts/*.txt`) via `pyproject.toml` `[tool.setuptools.package-data]`
+- System model defaults are shipped as package data (`libercode/models.json`) via `pyproject.toml` — loaded by `_load_system_models()` in `config.py`
 - `Config.__init__` loads `libercode.json` from cwd then calls `load_dotenv(override=False)` — existing env vars take priority over `.env`
 - API credentials (`LLM_API_KEY`, `MODEL_ID`, `LLM_BASE_URL`) must be in env vars / `.env`, never in `libercode.json`
 - Console logging is set to ERROR level by default; file logging is DEBUG

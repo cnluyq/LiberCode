@@ -18,4 +18,4 @@ libercode = "libercode.cli:main"
 where = ["."]
 
 [tool.setuptools.package-data]
-libercode = ["prompts/*.txt"]
+libercode = ["prompts/*.txt", "models.json"]

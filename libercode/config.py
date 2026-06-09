@@ -5,11 +5,18 @@ Loads configuration from ``libercode.json`` in the project root, falling back
 to built-in defaults. API credentials (``LLM_API_KEY``, ``MODEL_ID``,
 ``LLM_BASE_URL``) are still read from environment variables / ``.env`` since
 they should not be committed to version control.
+
+Model configuration follows a 3-tier priority:
+
+1. **libercode.json** (project-level, user-editable) — highest priority
+2. **models.json** (shipped with the package, system-level defaults)
+3. **Hardcoded defaults** (``_DEFAULT_CONTEXT_WINDOW``, ``_DEFAULT_OUTPUT_MAX``)
 """
 
 import json
 import logging
 import os
+from importlib.resources import files as pkg_files
 from pathlib import Path
 from dataclasses import dataclass
 from dotenv import load_dotenv
@@ -27,7 +34,7 @@ _DEFAULT_DANGEROUS_COMMAND_PATTERNS = [
     "prefix:reboot",
 ]
 
-_DEFAULT_CONTEXT_WINDOW = 1_000_000
+_DEFAULT_CONTEXT_WINDOW = 256_000
 _DEFAULT_OUTPUT_MAX = 8_192
 
 _DEFAULTS = {
@@ -42,6 +49,21 @@ _DEFAULTS = {
     "default_context_window": _DEFAULT_CONTEXT_WINDOW,
     "default_output_max": _DEFAULT_OUTPUT_MAX,
 }
+
+
+def _load_system_models() -> dict:
+    """Load the system-level ``models.json`` shipped with the package.
+
+    Returns:
+        Dict mapping model IDs to their ``{"context_window": ..., "output_max": ...}``
+        configs, or an empty dict if the file is missing or invalid.
+    """
+    try:
+        models_file = pkg_files("libercode").joinpath("models.json")
+        return json.loads(models_file.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError) as exc:
+        logger.warning("Could not load system models.json: %s", exc)
+        return {}
 
 
 def _load_config_file(workdir: Path) -> dict:
@@ -138,15 +160,29 @@ class Config:
     def get_model_config(self, model_id: str) -> tuple[int, int]:
         """Get context_window and output_max for a model.
 
+        Resolution order (per-field):
+
+        1. ``libercode.json`` ``models`` entry for *model_id*
+        2. System ``models.json`` entry for *model_id*
+        3. ``default_context_window`` / ``default_output_max`` (also resolved
+           from libercode.json → system defaults → hardcoded fallbacks)
+
         Args:
             model_id: Model identifier
 
         Returns:
             Tuple of (context_window, output_max)
         """
-        model_config = self.models.get(model_id, {})
-        context = model_config.get("context_window", self.default_context_window)
-        output = model_config.get("output_max", self.default_output_max)
+        user_cfg = self.models.get(model_id, {})
+        system_cfg = self._system_models.get(model_id, {})
+        context = user_cfg.get(
+            "context_window",
+            system_cfg.get("context_window", self.default_context_window),
+        )
+        output = user_cfg.get(
+            "output_max",
+            system_cfg.get("output_max", self.default_output_max),
+        )
         return context, output
 
     def __init__(self, env_file: str | None = None):
@@ -224,17 +260,16 @@ class Config:
         )
 
         # Model configurations
+        self._system_models = _load_system_models()
+        logger.debug("Loaded system_models: %d entries", len(self._system_models))
+
         self.models = file_config.get("models", _DEFAULTS["models"])
         if not isinstance(self.models, dict):
             raise ConfigurationError(
                 f"libercode.json: 'models' must be an object, got {type(self.models).__name__}"
             )
-        self.default_context_window = int(
-            file_config.get("default_context_window", _DEFAULTS["default_context_window"])
-        )
-        self.default_output_max = int(
-            file_config.get("default_output_max", _DEFAULTS["default_output_max"])
-        )
+        self.default_context_window = int(_DEFAULTS["default_context_window"])
+        self.default_output_max = int(_DEFAULTS["default_output_max"])
 
         # Initialize async client for interruptible LLM calls
         self.async_client = AsyncAnthropic(
