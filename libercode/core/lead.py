@@ -164,8 +164,8 @@ class LeadAgent:
                 return
             except Exception as e:
                 if hasattr(e, 'status_code'):
-                    if e.status_code == 500 or e.status_code == 502:
-                        self._logger.warning("LLM internal error, sleeping and retrying")
+                    if e.status_code == 500 or e.status_code == 502 or e.status_code == 503:
+                        self._logger.warning(f"LLM internal error({e.status_code}), sleeping and retry")
                         await asyncio.sleep(30)
                         continue
                     elif e.status_code == 429:

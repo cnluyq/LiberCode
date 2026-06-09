@@ -213,7 +213,7 @@ class TeammateAgent:
                     except Exception as e:
                         if hasattr(e, 'status_code'):
                             if e.status_code == 500 or e.status_code == 502 or e.status_code == 503:
-                                self._logger.warning("LLM internal error, sleeping and retrying")
+                                self._logger.warning("LLM internal error({e.status_code}), sleeping and retry")
                                 time.sleep(30)
                                 continue
                             elif e.status_code == 429:
