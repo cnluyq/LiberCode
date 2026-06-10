@@ -166,14 +166,17 @@ class OutputManager:
 tprint = OutputManager.tprint
 
 
-def format_llm_response(response, agent_name: str) -> None:
+def extract_llm_text(response) -> str:
     """
-    Format and print LLM response in user-friendly format.
-    
+    Extract and format text content from an LLM response.
+
     Args:
-        response_content: List of content blocks from LLM response
-        agent_name: Name of the agent for display
+        response: LLM response object with content blocks
+
+    Returns:
+        Formatted text string from the response, or empty string if no text found
     """
+    result = ""
     for block in response.content:
         if hasattr(block, 'type'):
             if block.type == 'text':
@@ -181,5 +184,5 @@ def format_llm_response(response, agent_name: str) -> None:
                 if '<think>' in text or '<thinking>' in text:
                     text = re.sub(r'<think(?:ing)?>', 'Thinking: ', text, flags=re.IGNORECASE)
                     text = re.sub(r'</think(?:ing)?>', '', text, flags=re.IGNORECASE)
-                tprint()
-                tprint(text, color="cyan", style="bold")
+                result += text
+    return result

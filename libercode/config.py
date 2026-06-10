@@ -42,6 +42,8 @@ _DEFAULTS = {
     "status_refresh": 5.0,
     "session_auto_save": True,
     "session_auto_save_interval": 1.0,
+    "poll_interval": 5,
+    "idle_timeout": 60*60*12,
     "dangerous_command_policy": "confirm",
     "dangerous_command_patterns_override": None,
     "dangerous_command_patterns_extra": [],
@@ -213,8 +215,18 @@ class Config:
         logger.debug("Loaded file_config: %s", file_config)
 
         # Runtime parameters
-        self.poll_interval = 5
-        self.idle_timeout = 60 * 60 * 12
+        poll_interval_val = file_config.get("poll_interval", _DEFAULTS["poll_interval"])
+        try:
+            self.poll_interval = int(float(poll_interval_val))
+        except (TypeError, ValueError):
+            self.poll_interval = _DEFAULTS["poll_interval"]
+
+        idle_timeout_val = file_config.get("idle_timeout", _DEFAULTS["idle_timeout"])
+        try:
+            self.idle_timeout = int(float(idle_timeout_val))
+        except (TypeError, ValueError):
+            self.idle_timeout = _DEFAULTS["poll_interval"]
+
         self.debug = file_config.get("debug", _DEFAULTS["debug"])
         if not isinstance(self.debug, bool):
             raise ConfigurationError(

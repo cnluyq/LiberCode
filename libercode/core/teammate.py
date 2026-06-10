@@ -17,7 +17,7 @@ from libercode.messaging.protocol import Message, MessageType
 from libercode.messaging.serialization import serialize_content
 from libercode.utils.token_tracker import TokenTracker
 from libercode.utils.logging import get_logger, log_task_event, log_agent_event
-from libercode.ui.output import tprint, format_llm_response
+from libercode.ui.output import tprint, extract_llm_text
 
 from pathlib import Path
 
@@ -246,7 +246,10 @@ class TeammateAgent:
                         self._logger.info(f"Teammate {self.name} llm loop go to idle as stop_reason ({response.stop_reason}) is not 'tool_use'.")
                         break
 
-                    format_llm_response(response, self.name)
+                    text = extract_llm_text(response)
+                    if text:
+                        tprint()
+                        tprint(text, color="cyan", style="bold")
 
                     # Execute tools
                     results = []
@@ -258,6 +261,14 @@ class TeammateAgent:
                                 output = "Entering idle phase. Will poll for new tasks."
                                 log_agent_event(self.name, 'idle', {'round': round_num})
                                 self._logger.debug("Entering idle phase")
+                                general_idle_msg="I am entering idle phase now. If you have any requests, feel free to send me a message."
+                                idle_content = f"{text}\n\n{general_idle_msg}" if text else general_idle_msg
+                                idle_msg = Message(
+                                    type=MessageType.MESSAGE,
+                                    sender=self.name,
+                                    content=idle_content,
+                                )
+                                self.message_bus.send(idle_msg, to="lead")
                             else:
                                 output = self._execute_tool(block.name, block.input)
 

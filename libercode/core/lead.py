@@ -19,7 +19,7 @@ from libercode.messaging.bus import MessageBus
 from libercode.messaging.serialization import serialize_content
 from libercode.utils.token_tracker import TokenTracker
 from libercode.utils.logging import get_logger, log_task_event, log_agent_event
-from libercode.ui.output import tprint, format_llm_response
+from libercode.ui.output import tprint, extract_llm_text
 from libercode.exceptions import LLMInternalError, LLMRateLimitError
 from libercode.core.interrupt_handler import check_cancel, request_cancel, clear_cancel
 
@@ -200,7 +200,10 @@ class LeadAgent:
                 self._logger.debug(f"LLM loop returned as stop_reason ({response.stop_reason}) is not 'tool_use'.")
                 return
 
-            format_llm_response(response, "team lead")
+            text = extract_llm_text(response)
+            if text:
+                tprint()
+                tprint(text, color="cyan", style="bold")
 
             results = []
             user_input_request_data = None

@@ -111,6 +111,10 @@ export LLM_BASE_URL=<llm_provider_url> # Base URL (optional for anthropic models
   "session_auto_save": true,               // Enable auto-save (default: true)
   "session_auto_save_interval": 1.0,       // Auto-save interval in seconds (default: 1.0)
 
+  // teammate idle loop contorl
+  "poll_interval": 5,                      // teammate idle poll sleep interval 
+  "idle_timeout": 60*60*12,                // teammate idle state timeout
+
   // Dangerous command control
   "dangerous_command_policy": "confirm",    // "deny" (block) | "allow" (pass) | "confirm" (ask user)
   "dangerous_command_patterns_override": null,  // Array to replace defaults entirely; [] disables all checking
