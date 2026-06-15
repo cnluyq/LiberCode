@@ -178,9 +178,13 @@ class TeammateAgent:
             # -- WORK PHASE: standard agent loop --
             # Check initial status: skip work loop if already idle
             initial_status = self._get_status()
+            idle_requested = False
+            loop_exhausted = False
+            end_turn = False
+            text = None
             if initial_status != "idle":
                 round_num = 0
-                for _ in range(50):
+                for _ in range(self.config.teammate_loop_limit):
                     round_num += 1
 
                     # Check inbox
@@ -244,6 +248,7 @@ class TeammateAgent:
                     # Check if done
                     if response.stop_reason != "tool_use":
                         self._logger.info(f"Teammate {self.name} llm loop go to idle as stop_reason ({response.stop_reason}) is not 'tool_use'.")
+                        end_turn = True
                         break
 
                     text = extract_llm_text(response)
@@ -253,22 +258,12 @@ class TeammateAgent:
 
                     # Execute tools
                     results = []
-                    idle_requested = False
                     for block in response.content:
                         if block.type == "tool_use":
                             if block.name == "idle":
                                 idle_requested = True
                                 output = "Entering idle phase. Will poll for new tasks."
                                 log_agent_event(self.name, 'idle', {'round': round_num})
-                                self._logger.debug("Entering idle phase")
-                                general_idle_msg="I am entering idle phase now. If you have any requests, feel free to send me a message."
-                                idle_content = f"{text}\n\n{general_idle_msg}" if text else general_idle_msg
-                                idle_msg = Message(
-                                    type=MessageType.MESSAGE,
-                                    sender=self.name,
-                                    content=idle_content,
-                                )
-                                self.message_bus.send(idle_msg, to="lead")
                             else:
                                 output = self._execute_tool(block.name, block.input)
 
@@ -288,12 +283,42 @@ class TeammateAgent:
                     self.messages.append({"role": "user", "content": results})
 
                     if idle_requested:
-                        self._set_status("idle")
                         break
+                else:
+                    loop_exhausted = True
 
             # -- IDLE PHASE: poll for inbox messages and unclaimed tasks --
-            tprint(f"Teammate {self.name} entering state of idle")
-            self._logger.info(f"Teammate {self.name} entering state of idle")
+
+            if idle_requested:
+                idle_reason = "LLM idle tool use"
+            elif loop_exhausted:
+                idle_reason = f"reaching configured work loop limit({self.config.teammate_loop_limit} rounds)"
+            elif end_turn:
+                idle_reason = "LLM stop_reason not being tool_use"
+            else:
+                idle_reason = None
+
+            if idle_reason:
+                tprint(f"Teammate {self.name} entering state of idle due to {idle_reason}.")
+                self._logger.info(f"Teammate {self.name} entering state of idle due to {idle_reason}")
+            else:
+                tprint(f"Teammate {self.name} entering state of idle.")
+                self._logger.info(f"Teammate {self.name} entering state of idle")
+
+            if idle_reason:
+                idle_base = f"I(Teammate {self.name}) am entering idle phase due to {idle_reason}. If you have any requests, feel free to send me a message."
+            else:
+                idle_base = f"I(Teammate {self.name}) am entering idle phase. If you have any requests, feel free to send me a message."
+            idle_content = f"{text}\n\n{idle_base}" if text else idle_base
+            idle_msg = Message(
+                type=MessageType.MESSAGE,
+                sender=self.name,
+                content=idle_content,
+            )
+            self.message_bus.send(idle_msg, to="lead")
+
+            self._set_status("idle")
+
             resume = False
             polls = self.config.idle_timeout // max(self.config.poll_interval, 1)
             for _ in range(polls):

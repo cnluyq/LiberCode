@@ -47,6 +47,7 @@ _DEFAULTS = {
     "dangerous_command_policy": "confirm",
     "dangerous_command_patterns_override": None,
     "dangerous_command_patterns_extra": [],
+    "teammate_loop_limit": 1000,
     "models": {},
     "default_context_window": _DEFAULT_CONTEXT_WINDOW,
     "default_output_max": _DEFAULT_OUTPUT_MAX,
@@ -153,6 +154,9 @@ class Config:
 
     # Dangerous command patterns (resolved from defaults + override/extra)
     dangerous_command_patterns: list
+
+    # Teammate loop limit
+    teammate_loop_limit: int
 
     # Model configurations
     models: dict
@@ -270,6 +274,17 @@ class Config:
         self.dangerous_command_patterns = _resolve_dangerous_command_patterns(
             file_config
         )
+
+        # Teammate loop limit
+        teammate_loop_limit_val = file_config.get("teammate_loop_limit", _DEFAULTS["teammate_loop_limit"])
+        try:
+            self.teammate_loop_limit = int(teammate_loop_limit_val)
+        except (TypeError, ValueError):
+            self.teammate_loop_limit = _DEFAULTS["teammate_loop_limit"]
+        if self.teammate_loop_limit < 1:
+            raise ConfigurationError(
+                f"libercode.json: 'teammate_loop_limit' must be >= 1, got {self.teammate_loop_limit}"
+            )
 
         # Model configurations
         self._system_models = _load_system_models()
