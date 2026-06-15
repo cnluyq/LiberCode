@@ -15,9 +15,12 @@ from pathlib import Path
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass, field
 
+import re
+
 from libercode.utils.logging import get_logger, switch_log_dir
 from libercode.messaging.serialization import serialize_content
 from libercode.utils.token_tracker import TokenTracker
+from libercode.ui.output import tprint
 
 
 @dataclass
@@ -433,6 +436,76 @@ class AutoSaver:
                     )
                 self._consecutive_adjustments = 0
 
+def _extract_text_from_deserialized_content(content) -> str:
+    result = ""
+    if isinstance(content, list):
+        for block in content:
+            if isinstance(block, dict) and block.get("type") == "text":
+                text = block.get("text", "")
+                if '</think>' in text or '<thinking>' in text:
+                    text = re.sub(r'<think(?:ing)?>', 'Thinking: ', text, flags=re.IGNORECASE)
+                    text = re.sub(r'</think(?:ing)?>', '', text, flags=re.IGNORECASE)
+                result += text
+    elif isinstance(content, str):
+        result = content
+    return result
+
+
+def replay_message_history(messages: List[Dict], agent_label: str = "", tools_schema_list: Optional[List[Dict]] = None, output_target=None) -> None:
+    """Replay assistant message history by printing text and tool calls.
+
+    Iterates through restored messages and prints each assistant response's
+    text content (in cyan/bold) and tool use blocks (with validated args preview).
+
+    Args:
+        messages: List of message dicts (deserialized from session JSON).
+        agent_label: Optional label prefix (e.g. "Lead", "Teammate:alice").
+        tools_schema_list: Tool schema list for arg validation (lead or teammate tools).
+        output_target: Optional file-like object to redirect output to (e.g. teammate pty_file).
+                       When provided, tprint output is temporarily redirected to this target.
+    """
+    from libercode.tools.validator import validate_and_fix_args
+    from libercode.ui.output import OutputManager
+
+    def _do_replay():
+        label_prefix = f"[{agent_label}] " if agent_label else ""
+        for msg in messages:
+            if not isinstance(msg, dict) or msg.get("role") != "assistant":
+                continue
+
+            content = msg.get("content", [])
+            text = _extract_text_from_deserialized_content(content)
+            if text:
+                tprint()
+                tprint(text, color="cyan", style="bold")
+
+            if isinstance(content, list):
+                for block in content:
+                    if isinstance(block, dict) and block.get("type") == "tool_use":
+                        tool_name = block.get("name", "unknown")
+                        tool_input = block.get("input", {})
+
+                        if tools_schema_list:
+                            fixed_args, validation_error, _ = validate_and_fix_args(
+                                tool_name, tool_input, tools_schema_list,
+                            )
+                            if validation_error:
+                                continue
+                        else:
+                            fixed_args = tool_input
+
+                        args_repr = str(fixed_args)
+                        args_substr = args_repr[:100] + ("..." if len(args_repr) > 100 else "")
+                        tprint(f"Executing tool: {tool_name}, args: {args_substr}")
+
+    if output_target is not None:
+        om = OutputManager()
+        with om.redirect(output_target):
+            _do_replay()
+    else:
+        _do_replay()
+
+
 class SessionRecoveryManager:
     """
     Manages session recovery from saved sessions.
@@ -594,6 +667,10 @@ class SessionRecoveryManager:
             except Exception as e:
                 _logger.error(f"Failed to restore lead messages: {e}")
                 summary["restored"]["lead_messages"] = f"error: {e}"
+
+            if lead.messages:
+                from libercode.tools.lead_tools import get_lead_tools
+                replay_message_history(lead.messages, agent_label="Lead", tools_schema_list=get_lead_tools())
 
         # Step 5: Restore token records
         token_src = session_path / "token_records.json"

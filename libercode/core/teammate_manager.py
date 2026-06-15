@@ -159,6 +159,16 @@ class TeammateManager:
             except Exception:
                 pass
 
+        if pty_file and restored_messages:
+            from libercode.session_manager import replay_message_history
+            from libercode.tools.teammate_tools import get_teammate_tools
+            replay_message_history(
+                restored_messages,
+                agent_label=f"Teammate:{name}",
+                tools_schema_list=get_teammate_tools(),
+                output_target=pty_file,
+            )
+
         member = {
             "name": name,
             "role": role,
