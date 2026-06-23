@@ -49,6 +49,12 @@ _DEFAULTS = {
     "dangerous_command_patterns_extra": [],
     "dangerous_command_timeout": 1800,
     "teammate_loop_limit": 1000,
+    "compact_tool_result_persist_single_content_threshhold": 30000,
+    "compact_tool_result_fullsize_threshhold": 200000,
+    "compact_ratio_threshold": 0.75,
+    "compact_tool_result_ratio_threshold": 0.6,
+    "compact_history_keep_latest_message_num": 10,
+    "compact_history_keep_original_message_num": 10,
     "models": {},
     "default_context_window": _DEFAULT_CONTEXT_WINDOW,
     "default_output_max": _DEFAULT_OUTPUT_MAX,
@@ -161,6 +167,14 @@ class Config:
 
     # Teammate loop limit
     teammate_loop_limit: int
+
+    # Context compaction thresholds
+    compact_tool_result_persist_single_content_threshhold: int
+    compact_tool_result_fullsize_threshhold: int
+    compact_ratio_threshold: float
+    compact_tool_result_ratio_threshold: float
+    compact_history_keep_latest_message_num: int
+    compact_history_keep_original_message_num: int
 
     # Model configurations
     models: dict
@@ -302,6 +316,62 @@ class Config:
         if self.teammate_loop_limit < 1:
             raise ConfigurationError(
                 f"libercode.json: 'teammate_loop_limit' must be >= 1, got {self.teammate_loop_limit}"
+            )
+
+        # Context compaction thresholds
+        self.compact_tool_result_persist_single_content_threshhold = int(
+            file_config.get(
+                "compact_tool_result_persist_single_content_threshhold",
+                _DEFAULTS["compact_tool_result_persist_single_content_threshhold"],
+            )
+        )
+        self.compact_tool_result_fullsize_threshhold = int(
+            file_config.get(
+                "compact_tool_result_fullsize_threshhold",
+                _DEFAULTS["compact_tool_result_fullsize_threshhold"],
+            )
+        )
+        ratio = file_config.get(
+            "compact_ratio_threshold",
+            _DEFAULTS["compact_ratio_threshold"],
+        )
+        self.compact_ratio_threshold = float(ratio)
+        if not (0 < self.compact_ratio_threshold <= 1.0):
+            raise ConfigurationError(
+                f"libercode.json: 'compact_ratio_threshold' must be between 0 and 1, "
+                f"got {self.compact_ratio_threshold}"
+            )
+        tr_ratio = file_config.get(
+            "compact_tool_result_ratio_threshold",
+            _DEFAULTS["compact_tool_result_ratio_threshold"],
+        )
+        self.compact_tool_result_ratio_threshold = float(tr_ratio)
+        if not (0 < self.compact_tool_result_ratio_threshold <= 1.0):
+            raise ConfigurationError(
+                f"libercode.json: 'compact_tool_result_ratio_threshold' must be between 0 and 1, "
+                f"got {self.compact_tool_result_ratio_threshold}"
+            )
+        self.compact_history_keep_latest_message_num = int(
+            file_config.get(
+                "compact_history_keep_latest_message_num",
+                _DEFAULTS["compact_history_keep_latest_message_num"],
+            )
+        )
+        if self.compact_history_keep_latest_message_num < 0:
+            raise ConfigurationError(
+                f"libercode.json: 'compact_history_keep_latest_message_num' must be >= 0, "
+                f"got {self.compact_history_keep_latest_message_num}"
+            )
+        self.compact_history_keep_original_message_num = int(
+            file_config.get(
+                "compact_history_keep_original_message_num",
+                _DEFAULTS["compact_history_keep_original_message_num"],
+            )
+        )
+        if self.compact_history_keep_original_message_num < 0:
+            raise ConfigurationError(
+                f"libercode.json: 'compact_history_keep_original_message_num' must be >= 0, "
+                f"got {self.compact_history_keep_original_message_num}"
             )
 
         # Model configurations

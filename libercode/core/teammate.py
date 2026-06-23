@@ -23,6 +23,7 @@ from pathlib import Path
 
 from libercode.exceptions import TaskClaimError
 from libercode.tools.base import set_thread_confirm_callback, unset_thread_confirm_callback
+from libercode.core.context_compact import tool_result_compact, compact_history, reactive_compact, needs_compact, MAX_REACTIVE_RETRIES
 
 
 @dataclass
@@ -55,6 +56,8 @@ class TeammateAgent:
     _should_shutdown: bool = False
     _agents_md_injected: bool = False
     real_time_model_id: str = ""
+    _last_input_tokens: int = 0
+    _last_model: str = ""
 
     def _load_agents_md(self) -> Optional[str]:
         """Load AGENTS.md or CLAUDE.md from project root."""
@@ -205,8 +208,10 @@ class TeammateAgent:
                             self._logger.info(f"Teammate {self.name} received message<{msg.type}> from {msg.sender} during work")
                             self._handle_inbox_message(msg)
 
+
                     # Call LLM
                     self._logger.info(f"round#{round_num} calling LLM ......")
+                    reactive_retries = 0
                     start_time = time.time()
                     try:
                         response = self.client.messages.create(
@@ -235,6 +240,12 @@ class TeammateAgent:
                                 self._logger.warning("Rate limit exceeded, sleeping and retrying")
                                 time.sleep(30)
                                 continue
+                        error_str = str(e).lower()
+                        if ("prompt_too_long" in error_str or "too many tokens" in error_str) and reactive_retries < MAX_REACTIVE_RETRIES:
+                            self._logger.warning("Prompt too long, running reactive compaction")
+                            reactive_compact(self.messages, self.client, self.config.model_id)
+                            reactive_retries += 1
+                            continue
                         self._logger.error(f"Exception during LLM call: {e}")
                         tprint(f"Teammate {self.name} shut down because of a fatal internel exception happened")
                         msg = Message(
@@ -247,6 +258,24 @@ class TeammateAgent:
 
                     # Update token stats
                     self.token_tracker.record(self.name, response, duration_ms)
+
+                    input_tokens = response.usage.input_tokens
+                    context_window, _ = self.config.get_model_config(response.model)
+                    if needs_compact(input_tokens, context_window, self.config.compact_tool_result_ratio_threshold):
+                        self._logger.info(
+                            f"Context ratio {input_tokens}/{context_window} exceeds {self.config.compact_tool_result_ratio_threshold}, compacting large tool result"
+                        )
+                        tool_result_compact(
+                            self.messages, self.config.workdir,
+                            self.config.compact_tool_result_persist_single_content_threshhold,
+                            self.config.compact_tool_result_fullsize_threshhold,
+                        )
+
+                    if needs_compact(input_tokens, context_window, self.config.compact_ratio_threshold):
+                        self._logger.info(
+                            f"Context ratio {input_tokens}/{context_window} exceeds {self.config.compact_ratio_threshold}, compacting history"
+                        )
+                        compact_history(self.messages, self.client, self.config.model_id, self.config.compact_history_keep_latest_message_num, self.config.compact_history_keep_original_message_num)
 
                     if hasattr(response, "model_dump"):
                         response_dict = response.model_dump()

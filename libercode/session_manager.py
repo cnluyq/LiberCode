@@ -242,6 +242,17 @@ class SessionManager:
         self._file_mtimes[str(token_path)] = time.time()
         return True
 
+    def _save_tool_results(self, session_path: Path) -> bool:
+        src_dir = self.lead.config.workdir / ".compacts" / "tool-results" if self.lead else None
+        if not src_dir or not src_dir.exists():
+            return False
+        dst_dir = session_path / "tool-results"
+        changed = False
+        for src_file in src_dir.glob("*.txt"):
+            if self._copy_file_if_changed(src_file, dst_dir / src_file.name):
+                changed = True
+        return changed
+
     def _do_save_unlocked(self) -> tuple[bool, float]:
         """Perform a save operation. Returns (changed, duration).
 
@@ -260,6 +271,7 @@ class SessionManager:
         changed = self._save_tasks(session_path) or changed
         changed = self._save_teammate_messages(session_path) or changed
         changed = self._save_token_records(session_path) or changed
+        changed = self._save_tool_results(session_path) or changed
 
         if changed:
             self._current_session.save_count += 1
@@ -686,7 +698,19 @@ class SessionRecoveryManager:
                 _logger.error(f"Failed to restore token records: {e}")
                 summary["restored"]["token_records"] = f"error: {e}"
 
-        # Step 6: Spawn teammates with restored history
+        # Step 6: Restore persisted tool results
+        tool_results_src = session_path / "tool-results"
+        if tool_results_src.exists():
+            workdir = lead.config.workdir if lead else Path.cwd()
+            dst_dir = workdir / ".compacts" / "tool-results"
+            dst_dir.mkdir(parents=True, exist_ok=True)
+            for src_file in tool_results_src.glob("*.txt"):
+                shutil.copy2(src_file, dst_dir / src_file.name)
+            count = len(list(tool_results_src.glob("*.txt")))
+            summary["restored"]["tool_results"] = count
+            _logger.info(f"Restored {count} persisted tool results")
+
+        # Step 7: Spawn teammates with restored history
         if teammate_manager:
             team_config_src = session_path / "team_config.json"
             teammates_path = session_path / "teammates"
