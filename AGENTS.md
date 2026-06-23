@@ -43,7 +43,8 @@ LiberCode reads project-level settings from `libercode.json` in the working dire
   // Dangerous command control
   "dangerous_command_policy": "deny", // "deny" (block) | "allow" (pass) | "confirm" (ask user)
   "dangerous_command_patterns_override": null, // Array to replace defaults entirely; [] disables all checking
-  "dangerous_command_patterns_extra": [] // Array of additional patterns to append to defaults
+  "dangerous_command_patterns_extra": [], // Array of additional patterns to append to defaults
+  "dangerous_command_timeout": 1800 // Teammate confirm wait timeout in seconds (default: 1800 = 30min)
 }
 ```
 

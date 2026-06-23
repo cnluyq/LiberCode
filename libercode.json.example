@@ -5,7 +5,7 @@
   "session_auto_save_interval": 1.0,
   "teammate_loop_limit": 1000,
   "poll_interval": 5,
-  "idle_timeout": 60*60*12,
+  "idle_timeout": 36000,
   "dangerous_command_policy": "confirm",
   "dangerous_command_patterns_override": null,
   "dangerous_command_patterns_extra": [],

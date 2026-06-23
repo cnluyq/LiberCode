@@ -6,6 +6,7 @@ Provides foundational tools for bash commands and file operations.
 import re
 import fnmatch
 import subprocess
+import threading
 from pathlib import Path
 from typing import Optional, Callable, List
 from libercode.exceptions import PathEscapeError, DangerousCommandError
@@ -21,6 +22,40 @@ _DEFAULT_DANGEROUS_PATTERNS = [
 _config = None
 _confirm_callback: Optional[Callable[[str], bool]] = None
 _compiled_patterns: Optional[List[tuple]] = None
+
+# Thread-local confirm callback — used by teammate agents to avoid
+# blocking the main thread with input() when policy is "confirm".
+_thread_local = threading.local()
+
+
+def set_thread_confirm_callback(
+    callback: Optional[Callable[[str], bool]],
+) -> None:
+    """Set a thread-local confirm callback for dangerous commands.
+
+    Used by teammate agents to redirect the confirm prompt through the
+    messaging bus instead of calling ``input()`` directly.
+
+    Args:
+        callback: Callable (command → bool), or None to clear.
+    """
+    _thread_local.confirm_callback = callback
+
+
+def unset_thread_confirm_callback() -> None:
+    """Remove the thread-local confirm callback (falls back to global)."""
+    try:
+        del _thread_local.confirm_callback
+    except AttributeError:
+        pass
+
+
+def _get_confirm_callback() -> Optional[Callable[[str], bool]]:
+    """Return the thread-local callback if set, otherwise the global one."""
+    try:
+        return _thread_local.confirm_callback
+    except AttributeError:
+        return _confirm_callback
 
 
 def _parse_pattern(raw: str) -> tuple:
@@ -132,8 +167,9 @@ def _handle_dangerous_command(command: str) -> None:
         return
 
     if policy == "confirm":
-        if _confirm_callback is not None:
-            allowed = _confirm_callback(command)
+        callback = _get_confirm_callback()
+        if callback is not None:
+            allowed = callback(command)
             if allowed:
                 return
         raise DangerousCommandError(

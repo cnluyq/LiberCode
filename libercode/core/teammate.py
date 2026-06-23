@@ -22,6 +22,7 @@ from libercode.ui.output import tprint, extract_llm_text
 from pathlib import Path
 
 from libercode.exceptions import TaskClaimError
+from libercode.tools.base import set_thread_confirm_callback, unset_thread_confirm_callback
 
 
 @dataclass
@@ -113,7 +114,12 @@ class TeammateAgent:
             self._inject_agents_md()
             self.messages.append(initial_message)
 
-            self._run_work_loop(sys_prompt, output_manager)
+            set_thread_confirm_callback(self._confirm_dangerous_command)
+            try:
+                self._run_work_loop(sys_prompt, output_manager)
+            finally:
+                unset_thread_confirm_callback()
+
         finally:
             output_manager.set_target(None)
             if self.pty_file:
@@ -151,7 +157,12 @@ class TeammateAgent:
             self.messages = list(restored_messages)
             self._agents_md_injected = True
 
-            self._run_work_loop(sys_prompt, output_manager)
+            set_thread_confirm_callback(self._confirm_dangerous_command)
+            try:
+                self._run_work_loop(sys_prompt, output_manager)
+            finally:
+                unset_thread_confirm_callback()
+
         finally:
             output_manager.set_target(None)
             if self.pty_file:
@@ -429,3 +440,76 @@ class TeammateAgent:
         if validation_warning:
             result = f"{result}\n\n{validation_warning}"
         return result
+
+    def _confirm_dangerous_command(self, command: str) -> bool:
+        """Confirm dangerous command execution by asking the lead agent.
+
+        Sends a USER_INPUT_REQUEST to the lead and polls the inbox for
+        the corresponding USER_INPUT_RESPONSE.  Blocks the calling thread
+        until the lead replies or a 120-second timeout expires.
+
+        Args:
+            command: The shell command that was flagged as dangerous.
+
+        Returns:
+            True if the lead/user allowed execution, False otherwise.
+        """
+        import uuid
+
+        request_id = str(uuid.uuid4())[:8]
+
+        msg = Message(
+            type=MessageType.USER_INPUT_REQUEST,
+            sender=self.name,
+            content=f"Dangerous command detected: `{command}`\n\nAllow execution? [y/N]",
+            extra={
+                "request_id": request_id,
+                "reason": "Dangerous command detected",
+                "urgency": "high",
+            },
+        )
+        self.message_bus.send(msg, to="lead")
+
+        self._logger.info(
+            f"Dangerous command confirmation request {request_id} sent to lead: {command}"
+        )
+
+        timeout = getattr(self.config, "dangerous_command_timeout", 1800)
+        inbox_path = self.message_bus.inbox_dir / f"{self.name}.jsonl"
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            if self._should_shutdown:
+                self._logger.info(
+                    f"Dangerous command confirmation {request_id}: cancelled by shutdown"
+                )
+                return False
+
+            if inbox_path.exists():
+                raw = inbox_path.read_text().strip()
+                if raw:
+                    for line in raw.splitlines():
+                        try:
+                            m = Message.from_json(line)
+                            if (
+                                m.type == MessageType.USER_INPUT_RESPONSE
+                                and m.extra.get("request_id") == request_id
+                            ):
+                                allowed = m.content.strip().lower() in (
+                                    "y",
+                                    "yes",
+                                    "allow",
+                                )
+                                self._logger.info(
+                                    f"Dangerous command confirmation {request_id}: "
+                                    f"{'allowed' if allowed else 'denied'} (response: {m.content})"
+                                )
+                                return allowed
+                        except Exception:
+                            continue
+
+            time.sleep(0.5)
+
+        self._logger.warning(
+            f"Dangerous command confirmation {request_id}: timed out (denied)"
+        )
+        return False

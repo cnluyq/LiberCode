@@ -47,6 +47,7 @@ _DEFAULTS = {
     "dangerous_command_policy": "confirm",
     "dangerous_command_patterns_override": None,
     "dangerous_command_patterns_extra": [],
+    "dangerous_command_timeout": 1800,
     "teammate_loop_limit": 1000,
     "models": {},
     "default_context_window": _DEFAULT_CONTEXT_WINDOW,
@@ -154,6 +155,9 @@ class Config:
 
     # Dangerous command patterns (resolved from defaults + override/extra)
     dangerous_command_patterns: list
+
+    # Dangerous command confirmation timeout (seconds)
+    dangerous_command_timeout: int
 
     # Teammate loop limit
     teammate_loop_limit: int
@@ -274,6 +278,20 @@ class Config:
         self.dangerous_command_patterns = _resolve_dangerous_command_patterns(
             file_config
         )
+
+        # Dangerous command confirmation timeout
+        timeout_val = file_config.get(
+            "dangerous_command_timeout", _DEFAULTS["dangerous_command_timeout"]
+        )
+        try:
+            self.dangerous_command_timeout = int(float(timeout_val))
+        except (TypeError, ValueError):
+            self.dangerous_command_timeout = _DEFAULTS["dangerous_command_timeout"]
+        if self.dangerous_command_timeout < 1:
+            raise ConfigurationError(
+                f"libercode.json: 'dangerous_command_timeout' must be >= 1, "
+                f"got {self.dangerous_command_timeout}"
+            )
 
         # Teammate loop limit
         teammate_loop_limit_val = file_config.get("teammate_loop_limit", _DEFAULTS["teammate_loop_limit"])
