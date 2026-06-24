@@ -268,12 +268,12 @@ class TeammateAgent:
                         tool_result_compact(
                             self.messages, self.config.workdir,
                             self.config.compact_tool_result_persist_single_content_threshhold,
-                            self.config.compact_tool_result_fullsize_threshhold,
+                            self.config.compact_tool_result_persist_fullsize_threshhold,
                         )
 
-                    if needs_compact(input_tokens, context_window, self.config.compact_ratio_threshold):
+                    if needs_compact(input_tokens, context_window, self.config.compact_history_ratio_threshold):
                         self._logger.info(
-                            f"Context ratio {input_tokens}/{context_window} exceeds {self.config.compact_ratio_threshold}, compacting history"
+                            f"Context ratio {input_tokens}/{context_window} exceeds {self.config.compact_history_ratio_threshold}, compacting history"
                         )
                         compact_history(self.messages, self.client, self.config.model_id, self.config.compact_history_keep_latest_message_num, self.config.compact_history_keep_original_message_num)
 
