@@ -142,6 +142,7 @@ class Config:
     team_dir: Path
     inbox_dir: Path
     tasks_dir: Path
+    compacts_dir: Path
 
     # Runtime parameters
     poll_interval: int
@@ -231,6 +232,7 @@ class Config:
         self.team_dir = self.workdir / ".team"
         self.inbox_dir = self.team_dir / "inbox"
         self.tasks_dir = self.workdir / ".tasks"
+        self.compacts_dir = self.workdir / ".compacts"
 
         # Load libercode.json
         file_config = _load_config_file(self.workdir)

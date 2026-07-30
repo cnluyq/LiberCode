@@ -13,6 +13,7 @@ from typing import List, Dict, Any, Optional
 
 from libercode.taskboard.models import Task, TaskStatus
 from libercode.utils.token_tracker import TokenTracker
+from libercode.core.context_compact import CompactionTracker
 from libercode.ui.tmux import create_balanced_pane, get_pane_by_tty, ensure_border_status, close_tmux_pane
 
 
@@ -135,8 +136,10 @@ class StatusPane:
         lead_context_window = self._get_context_window(self.lead.real_time_model_id)
         lead_ratio = min(lead_tokens / lead_context_window, 1.0)
         lead_record = caller_summary.get("lead", {})
+        lead_compact = CompactionTracker.get_summary("lead")
+        lead_tag = f" \033[33m🗜 {lead_compact}\033[0m" if lead_compact else ""
         lines.append(f"  Model: \033[37m{self.lead.real_time_model_id}\033[0m")
-        lines.append(f"  Context:\033[37m{lead_ratio*100:.0f}%\033[0m used(\033[37m{lead_tokens:,}\033[0m/\033[37m{lead_context_window:,}\033[0m) Calls: \033[37m{tracker.get_call_count("lead")}\033[0m")
+        lines.append(f"  Context:\033[37m{lead_ratio*100:.0f}%\033[0m used(\033[37m{lead_tokens:,}\033[0m/\033[37m{lead_context_window:,}\033[0m) Calls: \033[37m{tracker.get_call_count("lead")}\033[0m{lead_tag}")
         lines.append(f"  Consumed Tokens: \033[37m{lead_record.get('input_tokens', 0):,}\033[0min / \033[37m{lead_record.get('output_tokens', 0):,}\033[0mout")
 
         lines.append("")
@@ -159,8 +162,10 @@ class StatusPane:
                 ratio = min(tokens / tm_context_window, 1.0)
                 tm_record = caller_summary.get(name, {})
                 status_color = {"working": "32", "idle": "33", "shutdown": "31"}.get(status, "37")
+                tm_compact = CompactionTracker.get_summary(name)
+                tm_tag = f" \033[33m🗜 {tm_compact}\033[0m" if tm_compact else ""
                 lines.append(f"  \033[1;{status_color}m{name}\033[0m(\033[90m{status}\033[0m)  Model: \033[37m{model_id}\033[0m")
-                lines.append(f"    Context:\033[37m{ratio*100:.0f}%\033[0m used(\033[37m{tokens:,}\033[0m/\033[37m{tm_context_window:,}\033[0m) Calls: \033[37m{tracker.get_call_count(name)}\033[0m")
+                lines.append(f"    Context:\033[37m{ratio*100:.0f}%\033[0m used(\033[37m{tokens:,}\033[0m/\033[37m{tm_context_window:,}\033[0m) Calls: \033[37m{tracker.get_call_count(name)}\033[0m{tm_tag}")
                 lines.append(f"    Consumed Tokens: \033[37m{tm_record.get('input_tokens', 0):,}\033[0min / \033[37m{tm_record.get('output_tokens', 0):,}\033[0mout")
 
         lines.append("")

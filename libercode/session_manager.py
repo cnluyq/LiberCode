@@ -21,6 +21,7 @@ from libercode.utils.logging import get_logger, switch_log_dir
 from libercode.messaging.serialization import serialize_content
 from libercode.utils.token_tracker import TokenTracker
 from libercode.ui.output import tprint
+from libercode.core.context_compact import CompactionTracker
 
 
 @dataclass
@@ -243,7 +244,7 @@ class SessionManager:
         return True
 
     def _save_tool_results(self, session_path: Path) -> bool:
-        src_dir = self.lead.config.workdir / ".compacts" / "tool-results" if self.lead else None
+        src_dir = self.lead.config.compacts_dir / "tool-results" if self.lead else None
         if not src_dir or not src_dir.exists():
             return False
         dst_dir = session_path / "tool-results"
@@ -252,6 +253,14 @@ class SessionManager:
             if self._copy_file_if_changed(src_file, dst_dir / src_file.name):
                 changed = True
         return changed
+
+    def _save_compact_stats(self, session_path: Path) -> bool:
+        if not self.lead:
+            return False
+        src = self.lead.config.compacts_dir / "stats.json"
+        if not src.exists():
+            return False
+        return self._copy_file_if_changed(src, session_path / "stats.json")
 
     def _do_save_unlocked(self) -> tuple[bool, float]:
         """Perform a save operation. Returns (changed, duration).
@@ -272,6 +281,7 @@ class SessionManager:
         changed = self._save_teammate_messages(session_path) or changed
         changed = self._save_token_records(session_path) or changed
         changed = self._save_tool_results(session_path) or changed
+        changed = self._save_compact_stats(session_path) or changed
 
         if changed:
             self._current_session.save_count += 1
@@ -701,8 +711,7 @@ class SessionRecoveryManager:
         # Step 6: Restore persisted tool results
         tool_results_src = session_path / "tool-results"
         if tool_results_src.exists():
-            workdir = lead.config.workdir if lead else Path.cwd()
-            dst_dir = workdir / ".compacts" / "tool-results"
+            dst_dir = lead.config.compacts_dir / "tool-results"
             dst_dir.mkdir(parents=True, exist_ok=True)
             for src_file in tool_results_src.glob("*.txt"):
                 shutil.copy2(src_file, dst_dir / src_file.name)
@@ -710,7 +719,14 @@ class SessionRecoveryManager:
             summary["restored"]["tool_results"] = count
             _logger.info(f"Restored {count} persisted tool results")
 
-        # Step 7: Spawn teammates with restored history
+        # Step 7: Restore compaction stats (must happen after workdir is valid, before spawn)
+        stats_src = session_path / "stats.json"
+        if stats_src.exists():
+            CompactionTracker.load_from(stats_src)
+            _logger.info(f"Restored compaction stats from {stats_src}")
+            summary["restored"]["compaction_stats"] = True
+
+        # Step 8: Spawn teammates with restored history
         if teammate_manager:
             team_config_src = session_path / "team_config.json"
             teammates_path = session_path / "teammates"

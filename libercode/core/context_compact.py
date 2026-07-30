@@ -9,10 +9,122 @@ Two-stage compaction:
 """
 
 import json
+import threading
 from pathlib import Path
-from typing import List, Dict
+from typing import List, Dict, Optional
 
 MAX_REACTIVE_RETRIES: int = 2
+
+
+class CompactionRecord:
+    def __init__(self) -> None:
+        self.tool_result_count: int = 0
+        self.history_count: int = 0
+        self.reactive_count: int = 0
+        self.last_type: str = ""
+
+    @property
+    def total(self) -> int:
+        return self.tool_result_count + self.history_count + self.reactive_count
+
+    def to_dict(self) -> dict:
+        return {
+            "tool_result_count": self.tool_result_count,
+            "history_count": self.history_count,
+            "reactive_count": self.reactive_count,
+            "last_type": self.last_type,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "CompactionRecord":
+        r = cls()
+        r.tool_result_count = d.get("tool_result_count", 0)
+        r.history_count = d.get("history_count", 0)
+        r.reactive_count = d.get("reactive_count", 0)
+        r.last_type = d.get("last_type", "")
+        return r
+
+
+class CompactionTracker:
+    _records: Dict[str, CompactionRecord] = {}
+    _stats_path: Optional[Path] = None
+    _dirty: bool = False
+    _lock: threading.RLock = threading.RLock()
+
+    @classmethod
+    def init(cls, compacts_dir: Path) -> None:
+        with cls._lock:
+            cls._stats_path = compacts_dir / "stats.json"
+            cls._stats_path.parent.mkdir(parents=True, exist_ok=True)
+            cls._records.clear()
+            if cls._stats_path.exists():
+                try:
+                    data = json.loads(cls._stats_path.read_text())
+                    for name, rec in data.get("records", {}).items():
+                        cls._records[name] = CompactionRecord.from_dict(rec)
+                except Exception:
+                    cls._records.clear()
+
+    @classmethod
+    def get(cls, agent_name: str) -> CompactionRecord:
+        with cls._lock:
+            if agent_name not in cls._records:
+                cls._records[agent_name] = CompactionRecord()
+            return cls._records[agent_name]
+
+    @classmethod
+    def record_compact(cls, agent_name: str, compact_type: str) -> None:
+        with cls._lock:
+            rec = cls.get(agent_name)
+            if compact_type == "tool_result":
+                rec.tool_result_count += 1
+            elif compact_type == "history":
+                rec.history_count += 1
+            elif compact_type == "reactive":
+                rec.reactive_count += 1
+            rec.last_type = compact_type
+            cls._dirty = True
+        cls._flush()
+
+    @classmethod
+    def has_compacted(cls, agent_name: str) -> bool:
+        with cls._lock:
+            return cls.get(agent_name).total > 0
+
+    @classmethod
+    def _flush(cls) -> None:
+        with cls._lock:
+            if not cls._dirty or not cls._stats_path:
+                return
+            data = {
+                "records": {name: rec.to_dict() for name, rec in cls._records.items()},
+            }
+            cls._stats_path.write_text(json.dumps(data, indent=2))
+            cls._dirty = False
+
+    @classmethod
+    def load_from(cls, path: Path) -> None:
+        with cls._lock:
+            cls._records.clear()
+            if path.exists():
+                try:
+                    data = json.loads(path.read_text())
+                    for name, rec in data.get("records", {}).items():
+                        cls._records[name] = CompactionRecord.from_dict(rec)
+                except Exception:
+                    pass
+
+    @classmethod
+    def get_summary(cls, agent_name: str) -> str:
+        rec = cls.get(agent_name)
+        parts = []
+        if rec.tool_result_count:
+            parts.append(f"T{rec.tool_result_count}")
+        if rec.history_count:
+            parts.append(f"H{rec.history_count}")
+        if rec.reactive_count:
+            parts.append(f"R{rec.reactive_count}")
+        return ",".join(parts) if parts else ""
 
 
 def _is_tool_result_message(msg: Dict) -> bool:
@@ -40,10 +152,10 @@ def _message_has_tool_use(msg: Dict) -> bool:
     return False
 
 
-def _persist_large_output(tool_use_id: str, output: str, workdir: Path, persist_threshold: int) -> str:
+def _persist_large_output(tool_use_id: str, output: str, compacts_dir: Path, persist_threshold: int) -> str:
     if len(output) <= persist_threshold:
         return output
-    results_dir = workdir / ".compacts" / "tool-results"
+    results_dir = compacts_dir / "tool-results"
     results_dir.mkdir(parents=True, exist_ok=True)
     path = results_dir / f"{tool_use_id}.txt"
     if not path.exists():
@@ -58,7 +170,7 @@ def _persist_large_output(tool_use_id: str, output: str, workdir: Path, persist_
 
 def tool_result_compact(
     messages: List[Dict],
-    workdir: Path,
+    compacts_dir: Path,
     persist_threshold: int = 30000,
     fullsize_threshold: int = 200_000,
 ) -> None:
@@ -80,7 +192,7 @@ def tool_result_compact(
         if len(content) <= persist_threshold:
             continue
         tid = block.get("tool_use_id", "unknown")
-        block["content"] = _persist_large_output(tid, content, workdir, persist_threshold)
+        block["content"] = _persist_large_output(tid, content, compacts_dir, persist_threshold)
         total = sum(len(str(b.get("content", ""))) for _, b in blocks)
 
 

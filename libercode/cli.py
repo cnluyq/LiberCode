@@ -22,6 +22,7 @@ from libercode.messaging.serialization import serialize_content
 from libercode.core.teammate_manager import TeammateManager
 from libercode.core.lead import LeadAgent
 from libercode.core.interrupt_handler import request_cancel, clear_cancel
+from libercode.core.context_compact import CompactionTracker
 from libercode.utils.logging import setup_logging, get_logger
 from libercode.utils.token_tracker import TokenTracker
 from libercode.ui.output import tprint
@@ -34,7 +35,7 @@ _current_task = None
 
 
 def _cleanup_workdir_dirs(config):
-    for d in (config.team_dir, config.tasks_dir):
+    for d in (config.team_dir, config.tasks_dir, config.compacts_dir):
         try:
             if d.exists():
                 shutil.rmtree(d)
@@ -84,6 +85,9 @@ def main():
 
     set_dangerous_command_config(config, _confirm_dangerous_command)
     log.info(f"Dangerous command policy: {config.dangerous_command_policy}, patterns: {config.dangerous_command_patterns}")
+
+    CompactionTracker.init(config.compacts_dir)
+    log.info(f"CompactionTracker initialized at {config.compacts_dir}")
 
     client = Anthropic(api_key=config.api_key, base_url=config.base_url)
     log.info("Anthropic client initialized")

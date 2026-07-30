@@ -23,7 +23,7 @@ from pathlib import Path
 
 from libercode.exceptions import TaskClaimError
 from libercode.tools.base import set_thread_confirm_callback, unset_thread_confirm_callback
-from libercode.core.context_compact import tool_result_compact, compact_history, reactive_compact, needs_compact, MAX_REACTIVE_RETRIES
+from libercode.core.context_compact import tool_result_compact, compact_history, reactive_compact, needs_compact, CompactionTracker, MAX_REACTIVE_RETRIES
 
 
 @dataclass
@@ -244,6 +244,7 @@ class TeammateAgent:
                         if ("prompt_too_long" in error_str or "too many tokens" in error_str) and reactive_retries < MAX_REACTIVE_RETRIES:
                             self._logger.warning("Prompt too long, running reactive compaction")
                             reactive_compact(self.messages, self.client, self.config.model_id)
+                            CompactionTracker.record_compact(self.name, "reactive")
                             reactive_retries += 1
                             continue
                         self._logger.error(f"Exception during LLM call: {e}")
@@ -266,16 +267,18 @@ class TeammateAgent:
                             f"Context ratio {input_tokens}/{context_window} exceeds {self.config.compact_tool_result_ratio_threshold}, compacting large tool result"
                         )
                         tool_result_compact(
-                            self.messages, self.config.workdir,
+                            self.messages, self.config.compacts_dir,
                             self.config.compact_tool_result_persist_single_content_threshhold,
                             self.config.compact_tool_result_persist_fullsize_threshhold,
                         )
+                        CompactionTracker.record_compact(self.name, "tool_result")
 
                     if needs_compact(input_tokens, context_window, self.config.compact_history_ratio_threshold):
                         self._logger.info(
                             f"Context ratio {input_tokens}/{context_window} exceeds {self.config.compact_history_ratio_threshold}, compacting history"
                         )
                         compact_history(self.messages, self.client, self.config.model_id, self.config.compact_history_keep_latest_message_num, self.config.compact_history_keep_original_message_num)
+                        CompactionTracker.record_compact(self.name, "history")
 
                     if hasattr(response, "model_dump"):
                         response_dict = response.model_dump()
