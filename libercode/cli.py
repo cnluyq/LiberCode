@@ -250,7 +250,7 @@ async def async_repl_loop(lead, message_bus, task_manager, teammate_manager, log
                     tprint(" /sessions restore <name_or_number> - Restore a session")
                     tprint(" /sessions delete <name_or_number> - Delete a session")
                     tprint(" /connect [api_key] [base_url] - Switch LLM provider (interactive if no args)")
-                    tprint(" /model [model_id] - Show current model, or switch to model_id")
+                    tprint(" /model [model_id|list] - Show current model, switch model, or list available models")
                     tprint(" q, exit - Exit the application")
                     continue
 
@@ -393,9 +393,31 @@ async def async_repl_loop(lead, message_bus, task_manager, teammate_manager, log
                     args = parts[1:]
                     if not args:
                         tprint(f"Current model: {config.model_id}")
+                        tprint("Run '/model list' to list all available models.")
                         continue
                     if len(args) > 1:
-                        tprint("Usage: /model [model_id]")
+                        tprint("Usage: /model [model_id|list]")
+                        continue
+                    if args[0] == "list":
+                        tprint(
+                            f"Fetching available models from "
+                            f"{config.base_url or '(Anthropic default)'} ..."
+                        )
+                        try:
+                            models = await config.fetch_available_models()
+                        except Exception as e:
+                            tprint(f"Failed to fetch model list: {e}")
+                            continue
+                        if not models:
+                            tprint(
+                                "Could not fetch the model list from the "
+                                "connected provider."
+                            )
+                            continue
+                        tprint(f"Available models ({len(models)}):")
+                        for m in models:
+                            marker = ">" if m == config.model_id else " "
+                            tprint(f" {marker} {m}")
                         continue
                     new_model = args[0]
                     old_model = config.model_id

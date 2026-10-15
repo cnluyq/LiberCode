@@ -185,7 +185,7 @@ These runtime directories (`.team/`, `.tasks/`) are cleaned up on exit unless se
 | `/sessions [list\|restore\|delete\|resubject]` | Session management |
 | `/clear [name\|all]` | Clear message history |
 | `/connect [api_key] [base_url]` | Switch LLM provider at runtime; interactive if no args. Validated with a 1-token probe call (reverted on failure); updates lead + all teammates and persists to `.env` |
-| `/model [model_id]` | Show current model, or switch model (validated with a 1-token probe call, reverted on failure); persists to `.env` |
+| `/model [model_id\|list]` | Show current model, switch model (validated with a 1-token probe call, reverted on failure), or list available models on the connected provider (`/model list`); persists to `.env` |
 | `q` / `exit` | Quit |
 | `!<cmd>` | Run shell command directly from REPL |
 

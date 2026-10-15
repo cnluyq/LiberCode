@@ -501,6 +501,77 @@ class Config:
         self.model_id = model_id
         logger.info(f"Model switched to: {self.model_id}")
 
+    async def fetch_available_models(self, timeout: float = 10.0) -> list[str]:
+        """Fetch the model IDs available on the currently connected provider.
+
+        Probes a few candidate model-list endpoints (Anthropic-style and
+        OpenAI-compatible) using the current credentials.
+
+        Args:
+            timeout: Per-request HTTP timeout in seconds
+
+        Returns:
+            Sorted list of model IDs, or an empty list if the provider
+            does not expose a model list
+        """
+        import httpx
+
+        key = self.api_key
+        base = (self.base_url or "https://api.anthropic.com").rstrip("/")
+        candidates = [
+            (
+                f"{base}/v1/models",
+                {
+                    "x-api-key": key,
+                    "anthropic-version": "2023-06-01",
+                    "anthropic-beta": "model-list-2025-06-01",
+                },
+            ),
+        ]
+        if base.endswith("/anthropic"):
+            root = base[: -len("/anthropic")]
+            candidates.extend(
+                [
+                    (f"{root}/models", {"Authorization": f"Bearer {key}"}),
+                    (f"{root}/v1/models", {"Authorization": f"Bearer {key}"}),
+                ]
+            )
+        candidates.append((f"{base}/models", {"Authorization": f"Bearer {key}"}))
+
+        for url, headers in candidates:
+            try:
+                async with httpx.AsyncClient(timeout=timeout) as client:
+                    resp = await client.get(url, headers=headers)
+                if resp.status_code == 200:
+                    ids = self._parse_model_ids(resp.json())
+                    if ids:
+                        logger.info(f"Fetched {len(ids)} models from {url}")
+                        return ids
+                logger.debug(
+                    f"Model list endpoint {url} returned status {resp.status_code}"
+                )
+            except Exception as e:
+                logger.debug(f"Model list endpoint {url} failed: {e}")
+                continue
+        logger.warning("Could not fetch model list from any candidate endpoint")
+        return []
+
+    @staticmethod
+    def _parse_model_ids(data: Any) -> list[str]:
+        """Extract model IDs from an Anthropic- or OpenAI-style models payload."""
+        if isinstance(data, dict):
+            for field in ("data", "models"):
+                items = data.get(field)
+                if isinstance(items, list):
+                    ids = [
+                        item.get("id")
+                        for item in items
+                        if isinstance(item, dict) and item.get("id")
+                    ]
+                    if ids:
+                        return sorted(ids)
+        return []
+
     def persist_env(self) -> None:
         """Persist current credentials/model to the ``.env`` file.
 
