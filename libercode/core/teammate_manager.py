@@ -8,7 +8,6 @@ import threading
 from pathlib import Path
 from typing import Dict, List, Optional
 from dataclasses import dataclass, field
-from anthropic import Anthropic
 
 from libercode.config import Config
 from libercode.messaging.bus import MessageBus
@@ -25,14 +24,12 @@ class TeammateManager:
         config: Config instance
         message_bus: MessageBus instance
         task_manager: TaskManager instance
-        client: Anthropic client
         team_dir: Directory for team configuration
     """
 
     config: Config
     message_bus: MessageBus
     task_manager: TaskManager
-    client: Anthropic
     team_dir: Path
     threads: Dict[str, threading.Thread] = field(default_factory=dict)
     _teammates: Dict[str, TeammateAgent] = field(default_factory=dict, repr=False)
@@ -107,7 +104,7 @@ class TeammateManager:
         teammate = TeammateAgent(
             name=name,
             role=role,
-            client=self.client,
+            client=self.config.sync_client,
             config=self.config,
             message_bus=self.message_bus,
             task_manager=self.task_manager,
@@ -185,7 +182,7 @@ class TeammateManager:
         teammate = TeammateAgent(
             name=name,
             role=role,
-            client=self.client,
+            client=self.config.sync_client,
             config=self.config,
             message_bus=self.message_bus,
             task_manager=self.task_manager,
@@ -288,6 +285,16 @@ class TeammateManager:
     def reload_config(self) -> None:
         """Reload team configuration from disk."""
         self._team_config = self._load_config()
+
+    def refresh_clients(self) -> None:
+        """Update all running teammates to the current configured client.
+
+        Called after the LLM provider is switched at runtime (``/connect``).
+        In-flight LLM calls keep using the old client object and finish
+        normally; the next call picks up the new one.
+        """
+        for teammate in self._teammates.values():
+            teammate.client = self.config.sync_client
 
     def _is_tmux_available(self) -> bool:
         """Check if tmux is available"""

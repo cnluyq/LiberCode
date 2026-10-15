@@ -152,7 +152,7 @@ libercode/
   tools/worktree_tools.py   — 8 worktree tools (DEFINED BUT NOT WIRED)
   worktree/                 — Git worktree isolation (DEFINED BUT NOT WIRED)
   ui/                       — Tmux panes, status display, input, output
-  config.py                 — libercode.json loading, env loading, AsyncAnthropic client init
+  config.py                 — libercode.json loading, env loading, sync+async client init, runtime connect()/set_model()/persist_env()
   models.json               — System-level model defaults (context_window / output_max per model)
   cli.py                    — REPL loop, session management, agent orchestration
   session_manager.py        — Session save/restore/auto-save
@@ -184,6 +184,8 @@ These runtime directories (`.team/`, `.tasks/`) are cleaned up on exit unless se
 | `/tokens` | Token usage stats |
 | `/sessions [list\|restore\|delete\|resubject]` | Session management |
 | `/clear [name\|all]` | Clear message history |
+| `/connect [api_key] [base_url]` | Switch LLM provider at runtime; interactive if no args. Validated with a 1-token probe call (reverted on failure); updates lead + all teammates and persists to `.env` |
+| `/model [model_id]` | Show current model, or switch model (validated with a 1-token probe call, reverted on failure); persists to `.env` |
 | `q` / `exit` | Quit |
 | `!<cmd>` | Run shell command directly from REPL |
 
@@ -196,7 +198,7 @@ These runtime directories (`.team/`, `.tasks/`) are cleaned up on exit unless se
 - Prompts are shipped as package data (`libercode/prompts/*.txt`) via `pyproject.toml` `[tool.setuptools.package-data]`
 - System model defaults are shipped as package data (`libercode/models.json`) via `pyproject.toml` — loaded by `_load_system_models()` in `config.py`
 - `Config.__init__` loads `libercode.json` from cwd then calls `load_dotenv(override=False)` — existing env vars take priority over `.env`
-- API credentials (`LLM_API_KEY`, `MODEL_ID`, `LLM_BASE_URL`) must be in env vars / `.env`, never in `libercode.json`
+- API credentials (`LLM_API_KEY`, `MODEL_ID`, `LLM_BASE_URL`) must be in env vars / `.env`, never in `libercode.json`; at runtime they can be switched via `/connect` / `/model`, which write back to `.env` through `Config.persist_env()`
 - Console logging is set to ERROR level by default; file logging is DEBUG
 
 ## Extending

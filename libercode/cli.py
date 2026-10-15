@@ -11,11 +11,12 @@ import time
 import sys
 import signal
 import uuid
+import getpass
 from datetime import datetime
 from pathlib import Path
-from anthropic import Anthropic
 
 from libercode.config import Config
+from libercode.exceptions import ConfigurationError
 from libercode.taskboard.manager import TaskManager
 from libercode.messaging.bus import MessageBus
 from libercode.messaging.serialization import serialize_content
@@ -48,6 +49,13 @@ def _generate_session_name() -> str:
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     random_suffix = uuid.uuid4().hex[:6]
     return f"session_{timestamp}_{random_suffix}"
+
+
+def _mask_key(api_key: str) -> str:
+    """Mask an API key for display, keeping only a few leading/trailing chars."""
+    if len(api_key) <= 8:
+        return "*" * len(api_key)
+    return f"{api_key[:4]}...{api_key[-4:]}"
 
 
 def main():
@@ -89,7 +97,7 @@ def main():
     CompactionTracker.init(config.compacts_dir)
     log.info(f"CompactionTracker initialized at {config.compacts_dir}")
 
-    client = Anthropic(api_key=config.api_key, base_url=config.base_url)
+    client = config.sync_client
     log.info("Anthropic client initialized")
 
     message_bus = MessageBus(config.inbox_dir)
@@ -100,7 +108,6 @@ def main():
         config=config,
         message_bus=message_bus,
         task_manager=task_manager,
-        client=client,
         team_dir=config.team_dir,
     )
 
@@ -242,6 +249,8 @@ async def async_repl_loop(lead, message_bus, task_manager, teammate_manager, log
                     tprint(" /sessions resubject - Rewrite subject of current session")
                     tprint(" /sessions restore <name_or_number> - Restore a session")
                     tprint(" /sessions delete <name_or_number> - Delete a session")
+                    tprint(" /connect [api_key] [base_url] - Switch LLM provider (interactive if no args)")
+                    tprint(" /model [model_id] - Show current model, or switch to model_id")
                     tprint(" q, exit - Exit the application")
                     continue
 
@@ -312,6 +321,100 @@ async def async_repl_loop(lead, message_bus, task_manager, teammate_manager, log
                             tprint(f"Teammate '{teammate_name}' message history cleared.")
                         else:
                             tprint(f"Error: Teammate '{teammate_name}' not found.")
+                    continue
+
+                if query.strip().startswith("/connect"):
+                    if not config:
+                        tprint("Config unavailable.")
+                        continue
+                    parts = query.strip().split()
+                    args = parts[1:]
+                    if len(args) > 2:
+                        tprint("Usage: /connect [api_key] [base_url]")
+                        continue
+                    if not args:
+                        tprint("Interactive connect. API key input is hidden.")
+                        try:
+                            api_key = (await loop.run_in_executor(
+                                None, getpass.getpass, "API key: "
+                            )).strip()
+                            base_url = (await loop.run_in_executor(
+                                None, input, "Base URL [Enter for Anthropic default]: "
+                            )).strip()
+                        except (EOFError, KeyboardInterrupt):
+                            tprint("\nConnect cancelled.")
+                            continue
+                        if not api_key:
+                            tprint("API key cannot be empty.")
+                            continue
+                        base_url = base_url or None
+                    else:
+                        api_key = args[0]
+                        base_url = args[1] if len(args) > 1 else None
+                    old_api_key = config.api_key
+                    old_base_url = config.base_url
+                    try:
+                        config.connect(api_key, base_url)
+                    except ConfigurationError as e:
+                        tprint(f"Connect failed: {e}")
+                        continue
+                    tprint("Validating connection ...")
+                    try:
+                        await config.async_client.messages.create(
+                            model=config.model_id,
+                            max_tokens=1,
+                            messages=[{"role": "user", "content": "ping"}],
+                            timeout=30,
+                        )
+                    except Exception as e:
+                        config.connect(old_api_key, old_base_url)
+                        lead.client = config.sync_client
+                        lead.async_client = config.async_client
+                        teammate_manager.refresh_clients()
+                        tprint(f"Connection validation failed: {e}")
+                        tprint("Reverted to previous provider.")
+                        continue
+                    lead.client = config.sync_client
+                    lead.async_client = config.async_client
+                    teammate_manager.refresh_clients()
+                    config.persist_env()
+                    tprint(
+                        f"Connected. API key: {_mask_key(config.api_key)}  "
+                        f"Base URL: {config.base_url or '(Anthropic default)'}  "
+                        f"Model: {config.model_id}"
+                    )
+                    continue
+
+                if query.strip().startswith("/model"):
+                    if not config:
+                        tprint("Config unavailable.")
+                        continue
+                    parts = query.strip().split()
+                    args = parts[1:]
+                    if not args:
+                        tprint(f"Current model: {config.model_id}")
+                        continue
+                    if len(args) > 1:
+                        tprint("Usage: /model [model_id]")
+                        continue
+                    new_model = args[0]
+                    old_model = config.model_id
+                    config.set_model(new_model)
+                    tprint(f"Validating model '{new_model}' ...")
+                    try:
+                        await config.async_client.messages.create(
+                            model=new_model,
+                            max_tokens=1,
+                            messages=[{"role": "user", "content": "ping"}],
+                            timeout=30,
+                        )
+                    except Exception as e:
+                        config.set_model(old_model)
+                        tprint(f"Model validation failed: {e}")
+                        tprint(f"Reverted to '{old_model}'.")
+                        continue
+                    config.persist_env()
+                    tprint(f"Model switched to '{new_model}'.")
                     continue
 
                 if query.strip().startswith("/sessions"):

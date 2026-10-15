@@ -18,9 +18,10 @@ import logging
 import os
 from importlib.resources import files as pkg_files
 from pathlib import Path
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Any
 from dotenv import load_dotenv
-from anthropic import AsyncAnthropic
+from anthropic import Anthropic, AsyncAnthropic
 
 from libercode.exceptions import ConfigurationError
 
@@ -129,7 +130,9 @@ class Config:
 
     Loads from ``libercode.json`` (project root) plus environment variables
     for API credentials. File values override defaults; missing keys fall
-    back to defaults.
+    back to defaults. Credentials/model can be switched at runtime via
+    :meth:`connect` and :meth:`set_model` (REPL ``/connect`` and ``/model``
+    commands), optionally persisted back to ``.env`` via :meth:`persist_env`.
     """
 
     # API Configuration (always from env / .env — never from config file)
@@ -181,6 +184,10 @@ class Config:
     models: dict
     default_context_window: int
     default_output_max: int
+
+    # Runtime-switchable LLM clients (managed via connect()/set_model())
+    sync_client: Any = field(default=None, init=False, repr=False)
+    _env_file: Path = field(default=None, init=False, repr=False)
 
     def get_model_config(self, model_id: str) -> tuple[int, int]:
         """Get context_window and output_max for a model.
@@ -393,6 +400,74 @@ class Config:
         self.async_client = AsyncAnthropic(
             api_key=self.api_key, base_url=self.base_url
         )
+
+        # Initialize sync client for teammate threads
+        self.sync_client = Anthropic(api_key=self.api_key, base_url=self.base_url)
+
+        # Track .env file path for runtime persistence of /connect and /model
+        self._env_file = Path(env_file) if env_file else self.workdir / ".env"
+
+    def connect(self, api_key: str, base_url: str | None = None) -> None:
+        """Switch the LLM provider at runtime.
+
+        Recreates both sync and async clients with the new credentials.
+        All agents read these clients dynamically, so the change takes
+        effect on their next LLM call.
+
+        Args:
+            api_key: New API key
+            base_url: Optional new base URL (None keeps Anthropic default)
+
+        Raises:
+            ConfigurationError: If api_key is empty
+        """
+        if not api_key:
+            raise ConfigurationError("API key cannot be empty")
+        self.api_key = api_key
+        self.base_url = base_url or None
+        self.sync_client = Anthropic(api_key=self.api_key, base_url=self.base_url)
+        self.async_client = AsyncAnthropic(
+            api_key=self.api_key, base_url=self.base_url
+        )
+        logger.info(
+            f"LLM provider switched: base_url={self.base_url}, model_id={self.model_id}"
+        )
+
+    def set_model(self, model_id: str) -> None:
+        """Switch the model at runtime.
+
+        Model id is read dynamically from ``config.model_id`` on every LLM
+        call, so this takes effect for lead and all teammates immediately.
+
+        Args:
+            model_id: New model identifier
+
+        Raises:
+            ConfigurationError: If model_id is empty
+        """
+        if not model_id:
+            raise ConfigurationError("Model ID cannot be empty")
+        self.model_id = model_id
+        logger.info(f"Model switched to: {self.model_id}")
+
+    def persist_env(self) -> None:
+        """Persist current credentials/model to the ``.env`` file.
+
+        Writes ``LLM_API_KEY``, ``MODEL_ID`` and ``LLM_BASE_URL`` (when set)
+        so the configuration survives a restart. Also updates ``os.environ``.
+        """
+        from dotenv import set_key
+
+        env_path = str(self._env_file)
+        set_key(env_path, "LLM_API_KEY", self.api_key, quote_mode="auto")
+        set_key(env_path, "MODEL_ID", self.model_id, quote_mode="auto")
+        if self.base_url:
+            set_key(env_path, "LLM_BASE_URL", self.base_url, quote_mode="auto")
+        os.environ["LLM_API_KEY"] = self.api_key
+        os.environ["MODEL_ID"] = self.model_id
+        if self.base_url:
+            os.environ["LLM_BASE_URL"] = self.base_url
+        logger.info(f"Persisted LLM connection settings to {env_path}")
 
     def _get_required(self, key: str) -> str:
         """Get required environment variable or raise ConfigurationError"""
