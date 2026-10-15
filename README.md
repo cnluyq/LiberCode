@@ -179,14 +179,14 @@ Each pattern is a string in `[type:]pattern` format:
 ### Quick Start
 
 ```bash
-# Run in tmux(recommended strongly for better output display)
-tmux new-session -s LiberCode "libercode; echo 'press enter to exit...'; read"
-
-# Run command if no tmux (there is no status display for this)
+# Single unified command: auto-detects tmux.
+# If tmux is installed (and not already active), LiberCode relaunches itself
+# inside a tmux session for the best output display (status pane).
+# Otherwise it runs directly (no status display).
 libercode
 
-#example：
-[user@localhost ~] tmux new-session -s LiberCode "libercode; echo 'press enter to exit...'; read"
+# example：
+[user@localhost ~] libercode
 LiberCode - AI Agent for Teams
 Type 'q' or 'exit' to quit
 Press Ctrl+C to interrupt LLM processing

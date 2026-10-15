@@ -17,10 +17,11 @@ No tests, linter, or typechecker configured.
 ## Running
 
 ```bash
-tmux new-session -s LiberCode "libercode; echo 'press enter to exit...'; read" # full UI (status pane)
-libercode # no tmux (no status pane)
+libercode # unified command: auto-detects tmux (see below)
 python -m libercode # alternative entry point
 ```
+
+Startup auto-detection (`cli.py:_maybe_relaunch_in_tmux`): if the `tmux` binary exists, stdin/stdout are terminals, and we are not already inside tmux, LiberCode re-executes itself inside a `tmux new-session -s LiberCode` session (full UI with status pane). If a `LiberCode` session already exists it attaches to it instead. Otherwise (no tmux, non-tty, or tmux failure) it runs directly without a status pane.
 
 Entry point: `libercode/cli.py:main` (registered in `pyproject.toml` as `libercode` console script).
 

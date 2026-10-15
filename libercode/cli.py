@@ -12,6 +12,7 @@ import sys
 import signal
 import uuid
 import getpass
+import shlex
 from datetime import datetime
 from pathlib import Path
 
@@ -58,11 +59,51 @@ def _mask_key(api_key: str) -> str:
     return f"{api_key[:4]}...{api_key[-4:]}"
 
 
+def _maybe_relaunch_in_tmux() -> None:
+    """Re-exec inside a tmux session when tmux is available but not active.
+
+    Called at startup: when the tmux binary exists and we are not already
+    running inside tmux, relaunch the same command inside a tmux session so
+    the status pane can be displayed. Falls back to running directly when
+    tmux is missing, not usable on this terminal, or the LiberCode session
+    already exists (attach to it instead).
+    """
+    if os.environ.get("TMUX"):
+        return
+    if not sys.stdin.isatty() or not sys.stdout.isatty():
+        return
+    tmux_bin = shutil.which("tmux")
+    if not tmux_bin:
+        return
+    try:
+        has_session = (
+            subprocess.run(
+                [tmux_bin, "has-session", "-t", "LiberCode"],
+                capture_output=True,
+            ).returncode
+            == 0
+        )
+    except Exception:
+        return
+    cmd = " ".join(shlex.quote(a) for a in [sys.executable, *sys.argv])
+    try:
+        if has_session:
+            os.execvp(tmux_bin, [tmux_bin, "attach-session", "-t", "LiberCode"])
+        else:
+            shell_cmd = f"{cmd}; echo 'press enter to exit...'; read"
+            os.execvp(
+                tmux_bin, [tmux_bin, "new-session", "-s", "LiberCode", shell_cmd]
+            )
+    except Exception:
+        pass  # tmux failed for some reason; continue without it
+
+
 def main():
     """Main CLI entry point.
 
     Initializes all components and runs REPL loop.
     """
+    _maybe_relaunch_in_tmux()
     session_name = _generate_session_name()
     logger = setup_logging(
         session_name=session_name,
