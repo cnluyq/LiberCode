@@ -249,6 +249,8 @@ class Config:
     _env_file: Path = field(default=None, init=False, repr=False)
     _fetched_pricing: dict = field(default_factory=dict, init=False, repr=False)
     _pricing_sources: dict = field(default_factory=dict, init=False, repr=False)
+    _fetched_limits: dict = field(default_factory=dict, init=False, repr=False)
+    _model_limit_sources: dict = field(default_factory=dict, init=False, repr=False)
 
     def get_model_config(self, model_id: str) -> tuple[int, int]:
         """Get context_window and output_max for a model.
@@ -257,7 +259,8 @@ class Config:
 
         1. ``libercode.json`` ``models`` entry for *model_id*
         2. System ``models.json`` entry for *model_id*
-        3. ``default_context_window`` / ``default_output_max`` (also resolved
+        3. Limits auto-fetched from the provider / models.dev
+        4. ``default_context_window`` / ``default_output_max`` (also resolved
            from libercode.json → system defaults → hardcoded fallbacks)
 
         Args:
@@ -268,15 +271,39 @@ class Config:
         """
         user_cfg = self.models.get(model_id, {})
         system_cfg = self._system_models.get(model_id, {})
+        fetched = self._fetched_limits.get(model_id, {})
         context = user_cfg.get(
             "context_window",
-            system_cfg.get("context_window", self.default_context_window),
+            system_cfg.get(
+                "context_window",
+                fetched.get("context_window", self.default_context_window),
+            ),
         )
         output = user_cfg.get(
             "output_max",
-            system_cfg.get("output_max", self.default_output_max),
+            system_cfg.get("output_max", fetched.get("output_max", self.default_output_max)),
         )
         return context, output
+
+    def get_model_config_source(self, model_id: str) -> str | None:
+        """Get the source of the model limits (context_window/output_max).
+
+        Args:
+            model_id: Model identifier
+
+        Returns:
+            One of "libercode.json", "models.json", "provider",
+            "models.dev", or None when falling back to hardcoded defaults
+        """
+        user_cfg = self.models.get(model_id, {})
+        if "context_window" in user_cfg or "output_max" in user_cfg:
+            return "libercode.json"
+        system_cfg = self._system_models.get(model_id, {})
+        if "context_window" in system_cfg or "output_max" in system_cfg:
+            return "models.json"
+        if model_id in self._fetched_limits:
+            return self._model_limit_sources.get(model_id, "provider")
+        return None
 
     def get_model_pricing(self, model_id: str) -> dict | None:
         """Get pricing (USD per 1M tokens) for a model.
@@ -494,6 +521,8 @@ class Config:
         # Auto-fetched pricing caches (provider + models.dev)
         self._fetched_pricing = {}
         self._pricing_sources = {}
+        self._fetched_limits = {}
+        self._model_limit_sources = {}
 
     def connect(self, api_key: str, base_url: str | None = None) -> None:
         """Switch the LLM provider at runtime.
@@ -518,6 +547,8 @@ class Config:
         )
         self._fetched_pricing = {}
         self._pricing_sources = {}
+        self._fetched_limits = {}
+        self._model_limit_sources = {}
         logger.info(
             f"LLM provider switched: base_url={self.base_url}, model_id={self.model_id}"
         )
@@ -616,8 +647,8 @@ class Config:
     async def fetch_available_models(self, timeout: float = 10.0) -> list[str]:
         """Fetch the model IDs available on the currently connected provider.
 
-        Also refreshes the auto-fetched pricing cache from any pricing data
-        exposed by the provider's model list.
+        Also refreshes the auto-fetched pricing and model limits caches from
+        any data exposed by the provider's model list.
 
         Args:
             timeout: Per-request HTTP timeout in seconds
@@ -627,14 +658,15 @@ class Config:
             does not expose a model list
         """
         entries = await self.fetch_model_info(timeout=timeout)
-        self.update_fetched_pricing(entries)
+        self.update_fetched_model_info(entries)
         return sorted({e["id"] for e in entries if e.get("id")})
 
     async def refresh_pricing(self, timeout: float = 10.0) -> bool:
-        """Fetch model pricing from the connected provider and models.dev.
+        """Fetch model pricing and limits from the connected provider and models.dev.
 
         Runs silently — failures are logged at debug level and simply leave
-        the cache empty, in which case cost displays show N/A.
+        the caches empty, in which case cost displays show N/A and context
+        windows show "unknown".
 
         Sources (highest priority first):
         1. The connected provider's model list endpoint (if it exposes pricing)
@@ -651,18 +683,23 @@ class Config:
         except Exception as e:
             logger.debug(f"Provider pricing refresh failed: {e}")
             entries = []
-        self.update_fetched_pricing(entries)
-        dev_by_provider = await self.fetch_models_dev_pricing(timeout=timeout)
+        self.update_fetched_model_info(entries)
+        dev_by_provider = await self.fetch_models_dev_info(timeout=timeout)
         if dev_by_provider:
-            dev_flat = self.select_models_dev_pricing(dev_by_provider)
-            for model_id, pricing in dev_flat.items():
+            dev_pricing = self.select_models_dev_pricing(dev_by_provider)
+            for model_id, pricing in dev_pricing.items():
                 if model_id not in self._fetched_pricing:
                     self._fetched_pricing[model_id] = pricing
                     self._pricing_sources[model_id] = "models.dev"
+            dev_limits = self.select_models_dev_limits(dev_by_provider)
+            for model_id, limits in dev_limits.items():
+                if model_id not in self._fetched_limits:
+                    self._fetched_limits[model_id] = limits
+                    self._model_limit_sources[model_id] = "models.dev"
         return bool(self._fetched_pricing)
 
-    async def fetch_models_dev_pricing(self, timeout: float = 15.0) -> dict:
-        """Fetch the models.dev community pricing catalog.
+    async def fetch_models_dev_info(self, timeout: float = 15.0) -> dict:
+        """Fetch the models.dev community catalog (pricing + model limits).
 
         Results are cached to ``~/.cache/libercode/models-dev.json`` for 24h;
         a stale cache is used as fallback when the network fetch fails.
@@ -671,8 +708,7 @@ class Config:
             timeout: Per-request HTTP timeout in seconds
 
         Returns:
-            Dict mapping provider IDs to ``{model_id: pricing}`` dicts
-            (USD per 1M tokens)
+            Dict mapping provider IDs to ``{model_id: {"pricing": ..., "limits": ...}}``
         """
         import httpx
 
@@ -681,7 +717,7 @@ class Config:
             age = time.time() - cache_path.stat().st_mtime
             if 0 <= age < _MODELS_DEV_TTL_SECONDS:
                 try:
-                    return self._build_models_dev_pricing_map(
+                    return self._build_models_dev_info_map(
                         json.loads(cache_path.read_text(encoding="utf-8"))
                     )
                 except Exception as e:
@@ -697,13 +733,13 @@ class Config:
                     cache_path.write_text(text, encoding="utf-8")
                 except Exception as e:
                     logger.debug(f"Failed to cache models.dev data: {e}")
-                return self._build_models_dev_pricing_map(json.loads(text))
+                return self._build_models_dev_info_map(json.loads(text))
         except Exception as e:
             logger.debug(f"models.dev fetch failed: {e}")
 
         if cache_path.exists():
             try:
-                return self._build_models_dev_pricing_map(
+                return self._build_models_dev_info_map(
                     json.loads(cache_path.read_text(encoding="utf-8"))
                 )
             except Exception as e:
@@ -711,14 +747,14 @@ class Config:
         return {}
 
     def select_models_dev_pricing(self, by_provider: dict) -> dict:
-        """Flatten per-provider pricing into a model-id map.
+        """Flatten per-provider model info into a model-id pricing map.
 
         The provider matching the connected ``base_url`` host wins for
         models it lists; remaining models are filled from other providers
         (first seen wins).
 
         Args:
-            by_provider: ``{provider_id: {model_id: pricing}}`` map
+            by_provider: ``{provider_id: {model_id: info}}`` map
 
         Returns:
             Flat ``{model_id: pricing}`` dict
@@ -726,12 +762,38 @@ class Config:
         merged: dict = {}
         provider_id = self._guess_provider_id()
         if provider_id and provider_id in by_provider:
-            merged.update(by_provider[provider_id])
+            for model_id, info in by_provider[provider_id].items():
+                if isinstance(info, dict) and isinstance(info.get("pricing"), dict):
+                    merged[model_id] = info["pricing"]
         for pid, pmap in by_provider.items():
             if pid == provider_id:
                 continue
-            for model_id, pricing in pmap.items():
-                merged.setdefault(model_id, pricing)
+            for model_id, info in pmap.items():
+                if isinstance(info, dict) and isinstance(info.get("pricing"), dict):
+                    merged.setdefault(model_id, info["pricing"])
+        return merged
+
+    def select_models_dev_limits(self, by_provider: dict) -> dict:
+        """Flatten per-provider model info into a model-id limits map.
+
+        Args:
+            by_provider: ``{provider_id: {model_id: info}}`` map
+
+        Returns:
+            Flat ``{model_id: {"context_window": int, "output_max": int}}`` dict
+        """
+        merged: dict = {}
+        provider_id = self._guess_provider_id()
+        if provider_id and provider_id in by_provider:
+            for model_id, info in by_provider[provider_id].items():
+                if isinstance(info, dict) and isinstance(info.get("limits"), dict):
+                    merged[model_id] = info["limits"]
+        for pid, pmap in by_provider.items():
+            if pid == provider_id:
+                continue
+            for model_id, info in pmap.items():
+                if isinstance(info, dict) and isinstance(info.get("limits"), dict):
+                    merged.setdefault(model_id, info["limits"])
         return merged
 
     def _guess_provider_id(self) -> str | None:
@@ -766,14 +828,14 @@ class Config:
         }.get(host)
 
     @staticmethod
-    def _build_models_dev_pricing_map(data: Any) -> dict:
-        """Build a per-provider model pricing map from a models.dev catalog.
+    def _build_models_dev_info_map(data: Any) -> dict:
+        """Build a per-provider model info map from a models.dev catalog.
 
-        The catalog is keyed by provider; pricing is attached per model as a
-        ``cost`` dict (USD per 1M tokens) with optional keys ``input``,
-        ``output``, ``cache_read``, ``cache_write``. ``cache_write`` is
-        mapped to our ``cache_creation`` key; the ``reasoning`` field is
-        ignored (reasoning tokens are not tracked separately).
+        Each model entry yields ``{"pricing": {...}, "limits": {...}}``.
+        Pricing comes from the ``cost`` dict (USD per 1M tokens; ``cache_write``
+        is mapped to ``cache_creation``; ``reasoning`` is ignored). Limits come
+        from the ``limit`` dict (``context`` → context_window, ``output`` →
+        output_max).
         """
         by_provider: dict = {}
         if not isinstance(data, dict):
@@ -788,57 +850,120 @@ class Config:
             for model_id, entry in models.items():
                 if not isinstance(entry, dict):
                     continue
+                info: dict = {}
                 cost = entry.get("cost")
-                if not isinstance(cost, dict):
-                    continue
-                try:
-                    p_input = float(cost["input"])
-                    p_output = float(cost["output"])
-                except (KeyError, TypeError, ValueError):
-                    continue
-                pricing = {"input": p_input, "output": p_output}
-                if cost.get("cache_read") is not None:
+                if isinstance(cost, dict):
                     try:
-                        pricing["cache_read"] = float(cost["cache_read"])
-                    except (TypeError, ValueError):
-                        pass
-                if cost.get("cache_write") is not None:
-                    try:
-                        pricing["cache_creation"] = float(cost["cache_write"])
-                    except (TypeError, ValueError):
-                        pass
-                pmap[model_id] = pricing
+                        p_input = float(cost["input"])
+                        p_output = float(cost["output"])
+                    except (KeyError, TypeError, ValueError):
+                        p_input = p_output = None
+                    if p_input is not None:
+                        pricing = {"input": p_input, "output": p_output}
+                        if cost.get("cache_read") is not None:
+                            try:
+                                pricing["cache_read"] = float(cost["cache_read"])
+                            except (TypeError, ValueError):
+                                pass
+                        if cost.get("cache_write") is not None:
+                            try:
+                                pricing["cache_creation"] = float(cost["cache_write"])
+                            except (TypeError, ValueError):
+                                pass
+                        info["pricing"] = pricing
+                limit = entry.get("limit")
+                if isinstance(limit, dict):
+                    limits = Config._extract_model_limits(
+                        {"context_window": limit.get("context"), "max_output_tokens": limit.get("output")}
+                    )
+                    if limits:
+                        info["limits"] = limits
+                if info:
+                    pmap[model_id] = info
             if pmap:
                 by_provider[provider_id] = pmap
         return by_provider
 
-    def update_fetched_pricing(self, entries: list[dict]) -> None:
-        """Rebuild the fetched pricing cache from raw model entries.
+    def update_fetched_model_info(self, entries: list[dict]) -> None:
+        """Rebuild the fetched pricing and limits caches from raw model entries.
 
         Args:
             entries: List of raw model entry dicts from the provider
         """
-        fetched: dict = {}
+        fetched_pricing: dict = {}
+        fetched_limits: dict = {}
         for entry in entries:
             model_id = entry.get("id") if isinstance(entry, dict) else None
             if not model_id:
                 continue
             pricing = self._extract_pricing(entry)
             if pricing:
-                fetched[model_id] = pricing
-        # Preserve models.dev pricing for models the provider does not price
-        dev_entries = {
+                fetched_pricing[model_id] = pricing
+            limits = self._extract_model_limits(entry)
+            if limits:
+                fetched_limits[model_id] = limits
+        # Preserve models.dev data for models the provider does not cover
+        dev_pricing_entries = {
             mid: self._fetched_pricing[mid]
             for mid, src in self._pricing_sources.items()
             if src == "models.dev" and mid in self._fetched_pricing
         }
-        self._fetched_pricing = {**dev_entries, **fetched}
-        self._pricing_sources = {
-            **{mid: "models.dev" for mid in dev_entries},
-            **{mid: "provider" for mid in fetched},
+        dev_limit_entries = {
+            mid: self._fetched_limits[mid]
+            for mid, src in self._model_limit_sources.items()
+            if src == "models.dev" and mid in self._fetched_limits
         }
-        if fetched:
-            logger.info(f"Obtained pricing for {len(fetched)} models from provider")
+        self._fetched_pricing = {**dev_pricing_entries, **fetched_pricing}
+        self._pricing_sources = {
+            **{mid: "models.dev" for mid in dev_pricing_entries},
+            **{mid: "provider" for mid in fetched_pricing},
+        }
+        self._fetched_limits = {**dev_limit_entries, **fetched_limits}
+        self._model_limit_sources = {
+            **{mid: "models.dev" for mid in dev_limit_entries},
+            **{mid: "provider" for mid in fetched_limits},
+        }
+        if fetched_pricing:
+            logger.info(
+                f"Obtained pricing for {len(fetched_pricing)} models from provider"
+            )
+        if fetched_limits:
+            logger.info(
+                f"Obtained limits for {len(fetched_limits)} models from provider"
+            )
+
+    @staticmethod
+    def _extract_model_limits(entry: dict) -> dict | None:
+        """Extract context/output limits from a raw model entry.
+
+        Recognizes ``context_window`` / ``context_length`` and
+        ``max_output_tokens`` / ``max_completion_tokens``.
+
+        Args:
+            entry: Raw model entry dict
+
+        Returns:
+            Dict with optional ``context_window`` and ``output_max`` ints,
+            or None if no limits are exposed
+        """
+        limits: dict = {}
+        context = entry.get("context_window")
+        if context is None:
+            context = entry.get("context_length")
+        if context is not None:
+            try:
+                limits["context_window"] = int(float(context))
+            except (TypeError, ValueError):
+                pass
+        output = entry.get("max_output_tokens")
+        if output is None:
+            output = entry.get("max_completion_tokens")
+        if output is not None:
+            try:
+                limits["output_max"] = int(float(output))
+            except (TypeError, ValueError):
+                pass
+        return limits or None
 
     @staticmethod
     def _extract_pricing(entry: dict) -> dict | None:

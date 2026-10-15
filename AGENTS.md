@@ -56,7 +56,10 @@ Model `context_window` and `output_max` are resolved per-field in this order:
 
 1. **`libercode.json`** `models` entry — user-level overrides (highest priority)
 2. **`models.json`** — system-level defaults shipped with the package (`libercode/models.json`)
-3. **Hardcoded defaults** — `default_context_window` (256,000) and `default_output_max` (8,192)
+3. **Auto-fetched** — provider model list (`context_window` / `max_output_tokens`) then models.dev catalog (`limit.context` / `limit.output`); refreshed at startup, after `/connect`, and with `/model list`
+4. **Hardcoded defaults** — `default_context_window` (256,000) and `default_output_max` (8,192)
+
+The status pane shows `N/A (context window unknown)` when a model's limits are unknown (no config entry and not exposed by provider/models.dev). `Config.get_model_config_source(model_id)` reports the source (`libercode.json` / `models.json` / `provider` / `models.dev` / `None`).
 
 **Example** — override a single model's context window in `libercode.json`:
 

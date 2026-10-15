@@ -48,11 +48,13 @@ class StatusPane:
         self._running = False
         self._thread: Optional[threading.Thread] = None
 
-    def _get_context_window(self, model_id: str) -> int:
+    def _get_context_window(self, model_id: str) -> Optional[int]:
         if self.config:
+            if self.config.get_model_config_source(model_id) is None:
+                return None
             context, _ = self.config.get_model_config(model_id)
             return context
-        return 1_000_000
+        return None
 
     def start(self) -> None:
         if self._running:
@@ -134,12 +136,15 @@ class StatusPane:
         lead_records = tracker.get_records_by_caller("lead")
         lead_tokens = lead_records[-1].input_tokens if lead_records else 0
         lead_context_window = self._get_context_window(self.lead.real_time_model_id)
-        lead_ratio = min(lead_tokens / lead_context_window, 1.0)
         lead_record = caller_summary.get("lead", {})
         lead_compact = CompactionTracker.get_summary("lead")
         lead_tag = f" \033[33m🗜 {lead_compact}\033[0m" if lead_compact else ""
         lines.append(f"  Model: \033[37m{self.lead.real_time_model_id}\033[0m")
-        lines.append(f"  Context:\033[37m{lead_ratio*100:.0f}%\033[0m used(\033[37m{lead_tokens:,}\033[0m/\033[37m{lead_context_window:,}\033[0m) Calls: \033[37m{tracker.get_call_count("lead")}\033[0m{lead_tag}")
+        if lead_context_window:
+            lead_ratio = min(lead_tokens / lead_context_window, 1.0)
+            lines.append(f"  Context:\033[37m{lead_ratio*100:.0f}%\033[0m used(\033[37m{lead_tokens:,}\033[0m/\033[37m{lead_context_window:,}\033[0m) Calls: \033[37m{tracker.get_call_count("lead")}\033[0m{lead_tag}")
+        else:
+            lines.append(f"  Context:\033[37mN/A\033[0m (context window unknown) Calls: \033[37m{tracker.get_call_count("lead")}\033[0m{lead_tag}")
         lines.append(f"  Consumed Tokens: \033[37m{lead_record.get('input_tokens', 0):,}\033[0min / \033[37m{lead_record.get('output_tokens', 0):,}\033[0mout")
 
         lines.append("")
@@ -159,13 +164,16 @@ class StatusPane:
                     tokens = 0
                 model_id = teammate.real_time_model_id if teammate else "N/A"
                 tm_context_window = self._get_context_window(model_id)
-                ratio = min(tokens / tm_context_window, 1.0)
                 tm_record = caller_summary.get(name, {})
                 status_color = {"working": "32", "idle": "33", "shutdown": "31"}.get(status, "37")
                 tm_compact = CompactionTracker.get_summary(name)
                 tm_tag = f" \033[33m🗜 {tm_compact}\033[0m" if tm_compact else ""
                 lines.append(f"  \033[1;{status_color}m{name}\033[0m(\033[90m{status}\033[0m)  Model: \033[37m{model_id}\033[0m")
-                lines.append(f"    Context:\033[37m{ratio*100:.0f}%\033[0m used(\033[37m{tokens:,}\033[0m/\033[37m{tm_context_window:,}\033[0m) Calls: \033[37m{tracker.get_call_count(name)}\033[0m{tm_tag}")
+                if tm_context_window:
+                    ratio = min(tokens / tm_context_window, 1.0)
+                    lines.append(f"    Context:\033[37m{ratio*100:.0f}%\033[0m used(\033[37m{tokens:,}\033[0m/\033[37m{tm_context_window:,}\033[0m) Calls: \033[37m{tracker.get_call_count(name)}\033[0m{tm_tag}")
+                else:
+                    lines.append(f"    Context:\033[37mN/A\033[0m (context window unknown) Calls: \033[37m{tracker.get_call_count(name)}\033[0m{tm_tag}")
                 lines.append(f"    Consumed Tokens: \033[37m{tm_record.get('input_tokens', 0):,}\033[0min / \033[37m{tm_record.get('output_tokens', 0):,}\033[0mout")
 
         lines.append("")
