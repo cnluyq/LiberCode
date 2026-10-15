@@ -226,6 +226,7 @@ class Config:
         self.api_key = self._get_required("LLM_API_KEY")
         self.model_id = self._get_required("MODEL_ID")
         self.base_url = os.getenv("LLM_BASE_URL")
+        logger.debug(f"init base_url is {self.base_url},  model_id is {self.model_id}")
 
         # Paths
         self.workdir = Path.cwd()
