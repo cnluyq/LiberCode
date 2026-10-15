@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional
 
 from libercode.taskboard.models import Task, TaskStatus
-from libercode.utils.token_tracker import TokenTracker
+from libercode.utils.token_tracker import TokenTracker, _format_agg_cost
 from libercode.core.context_compact import CompactionTracker
 from libercode.ui.tmux import create_balanced_pane, get_pane_by_tty, ensure_border_status, close_tmux_pane
 
@@ -176,6 +176,7 @@ class StatusPane:
         lines.append(f"  Cache read:     \033[37m{total_summary.get('cache_read_input_tokens', 0):,}\033[0m")
         lines.append(f"  Cache create:   \033[37m{total_summary.get('cache_creation_input_tokens', 0):,}\033[0m")
         lines.append(f"  \033[1;37mTotal tokens:   {total_summary.get('total_tokens', 0):,}\033[0m")
+        lines.append(f"  \033[1;33mTotal cost:     {_format_agg_cost(total_summary)}\033[0m")
 
         return "\n".join(lines)
 

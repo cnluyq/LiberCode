@@ -191,7 +191,19 @@ class LeadAgent:
                 tprint("\n[Interrupted by user after async LLM call]")
                 return
 
-            self.token_tracker.record("lead", response, duration_ms)
+            pricing = self.config.get_model_pricing(response.model)
+            pricing_source = (
+                self.config.get_model_pricing_source(response.model)
+                if pricing
+                else None
+            )
+            self.token_tracker.record(
+                "lead",
+                response,
+                duration_ms,
+                pricing=pricing,
+                pricing_source=pricing_source,
+            )
 
             input_tokens = response.usage.input_tokens
             context_window, _ = self.config.get_model_config(response.model)

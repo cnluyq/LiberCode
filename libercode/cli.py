@@ -203,6 +203,10 @@ async def async_repl_loop(lead, message_bus, task_manager, teammate_manager, log
     if session_manager:
         subject_task = asyncio.create_task(_subject_generator_loop(session_manager))
 
+    pricing_task = None
+    if config:
+        pricing_task = asyncio.create_task(config.refresh_pricing())
+
     try:
         while True:
             try:
@@ -378,6 +382,7 @@ async def async_repl_loop(lead, message_bus, task_manager, teammate_manager, log
                     lead.async_client = config.async_client
                     teammate_manager.refresh_clients()
                     config.persist_env()
+                    asyncio.create_task(config.refresh_pricing())
                     tprint(
                         f"Connected. API key: {_mask_key(config.api_key)}  "
                         f"Base URL: {config.base_url or '(Anthropic default)'}  "
@@ -641,6 +646,12 @@ async def async_repl_loop(lead, message_bus, task_manager, teammate_manager, log
             subject_task.cancel()
             try:
                 await subject_task
+            except asyncio.CancelledError:
+                pass
+        if pricing_task and not pricing_task.done():
+            pricing_task.cancel()
+            try:
+                await pricing_task
             except asyncio.CancelledError:
                 pass
         if auto_saver:

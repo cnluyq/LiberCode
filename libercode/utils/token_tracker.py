@@ -10,6 +10,85 @@ from typing import Dict, List, Optional
 import argparse
 
 
+def compute_cost_usd(
+    pricing: Optional[Dict],
+    input_tokens: int,
+    output_tokens: int,
+    cache_creation_input_tokens: int = 0,
+    cache_read_input_tokens: int = 0,
+) -> Optional[float]:
+    """Compute the USD cost of an LLM call from a pricing dict.
+
+    ``pricing`` holds prices in USD per 1M tokens with optional keys
+    ``input``, ``output``, ``cache_read``, ``cache_creation``. Missing
+    cache prices are derived per Anthropic convention: cache_read is
+    0.1x the input price, cache_creation is 1.25x the input price.
+
+    Args:
+        pricing: Pricing dict (USD per 1M tokens), or None if unknown
+        input_tokens: Number of input tokens
+        output_tokens: Number of output tokens
+        cache_creation_input_tokens: Cache creation input tokens
+        cache_read_input_tokens: Cache read input tokens
+
+    Returns:
+        Cost in USD, or None if pricing is missing/invalid
+    """
+    if not pricing:
+        return None
+    try:
+        p_input = pricing.get("input")
+        p_output = pricing.get("output")
+        if p_input is None or p_output is None:
+            return None
+        p_input = float(p_input)
+        p_output = float(p_output)
+        p_cache_read = pricing.get("cache_read")
+        p_cache_creation = pricing.get("cache_creation")
+        p_cache_read = float(p_cache_read) if p_cache_read is not None else 0.1 * p_input
+        p_cache_creation = (
+            float(p_cache_creation) if p_cache_creation is not None else 1.25 * p_input
+        )
+    except (TypeError, ValueError):
+        return None
+    return (
+        input_tokens * p_input
+        + output_tokens * p_output
+        + cache_creation_input_tokens * p_cache_creation
+        + cache_read_input_tokens * p_cache_read
+    ) / 1_000_000
+
+
+def format_cost_usd(cost_usd: Optional[float]) -> str:
+    """Format a cost value for display."""
+    if cost_usd is None:
+        return "N/A"
+    return f"${cost_usd:.4f}"
+
+
+def _format_agg_cost(stats: Dict) -> str:
+    """Format an aggregated cost value, noting unknown-priced calls and the
+    pricing source."""
+    cost_usd = stats.get("cost_usd", 0.0) or 0.0
+    unknown = stats.get("cost_unknown", 0)
+    text = f"${cost_usd:.4f}"
+    if unknown:
+        text += f" (+{unknown} calls with unknown pricing)"
+    sources = stats.get("pricing_sources") or set()
+    if sources:
+        labels = [_SOURCE_LABELS.get(s, s) for s in sorted(sources)]
+        text += f" (estimated, unit prices from {', '.join(labels)})"
+    return text
+
+
+_SOURCE_LABELS = {
+    "libercode.json": "libercode.json",
+    "models.json": "models.json",
+    "provider": "provider API",
+    "models.dev": "models.dev",
+}
+
+
 @dataclass
 class TokenRecord:
     """Single LLM call token record."""
@@ -21,6 +100,8 @@ class TokenRecord:
     output_tokens: int
     cache_creation_input_tokens: int = 0
     cache_read_input_tokens: int = 0
+    cost_usd: Optional[float] = None
+    pricing_source: Optional[str] = None
 
     @property
     def total_tokens(self) -> int:
@@ -53,6 +134,8 @@ class TokenTracker:
         caller: str,
         response,
         duration_ms: int,
+        pricing: Optional[Dict] = None,
+        pricing_source: Optional[str] = None,
     ) -> None:
         """Record a single LLM call with full details.
 
@@ -60,17 +143,29 @@ class TokenTracker:
             caller: Name of the caller (lead or teammate name)
             response: Anthropic Message response object with usage attribute
             duration_ms: Execution time in milliseconds
+            pricing: Optional pricing dict (USD per 1M tokens) for the
+                response model, used to compute call cost
+            pricing_source: Optional label describing where ``pricing`` came
+                from (e.g. "models.dev", "provider", "libercode.json")
         """
         usage = response.usage
+        input_tokens = usage.input_tokens or 0
+        output_tokens = usage.output_tokens or 0
+        cache_creation = usage.cache_creation_input_tokens or 0
+        cache_read = usage.cache_read_input_tokens or 0
         record = TokenRecord(
             caller=caller,
             timestamp=datetime.now(),
             duration_ms=duration_ms,
             model=response.model,
-            input_tokens=usage.input_tokens or 0,
-            output_tokens=usage.output_tokens or 0,
-            cache_creation_input_tokens=usage.cache_creation_input_tokens or 0,
-            cache_read_input_tokens=usage.cache_read_input_tokens or 0,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            cache_creation_input_tokens=cache_creation,
+            cache_read_input_tokens=cache_read,
+            cost_usd=compute_cost_usd(
+                pricing, input_tokens, output_tokens, cache_creation, cache_read
+            ),
+            pricing_source=pricing_source,
         )
         self._records.append(record)
 
@@ -114,14 +209,24 @@ class TokenTracker:
                     "total_tokens": 0,
                     "call_count": 0,
                     "total_duration_ms": 0,
+                    "cost_usd": 0.0,
+                    "cost_unknown": 0,
+                    "pricing_sources": set(),
                 }
-            summary[record.caller]["input_tokens"] += record.input_tokens
-            summary[record.caller]["output_tokens"] += record.output_tokens
-            summary[record.caller]["cache_creation_input_tokens"] += record.cache_creation_input_tokens
-            summary[record.caller]["cache_read_input_tokens"] += record.cache_read_input_tokens
-            summary[record.caller]["total_tokens"] += record.total_tokens
-            summary[record.caller]["call_count"] += 1
-            summary[record.caller]["total_duration_ms"] += record.duration_ms
+            stats = summary[record.caller]
+            stats["input_tokens"] += record.input_tokens
+            stats["output_tokens"] += record.output_tokens
+            stats["cache_creation_input_tokens"] += record.cache_creation_input_tokens
+            stats["cache_read_input_tokens"] += record.cache_read_input_tokens
+            stats["total_tokens"] += record.total_tokens
+            stats["call_count"] += 1
+            stats["total_duration_ms"] += record.duration_ms
+            if record.cost_usd is None:
+                stats["cost_unknown"] += 1
+            else:
+                stats["cost_usd"] += record.cost_usd
+            if record.pricing_source:
+                stats["pricing_sources"].add(record.pricing_source)
         return summary
 
     def get_model_summary(self) -> Dict[str, Dict[str, int]]:
@@ -141,14 +246,24 @@ class TokenTracker:
                     "total_tokens": 0,
                     "call_count": 0,
                     "total_duration_ms": 0,
+                    "cost_usd": 0.0,
+                    "cost_unknown": 0,
+                    "pricing_sources": set(),
                 }
-            summary[record.model]["input_tokens"] += record.input_tokens
-            summary[record.model]["output_tokens"] += record.output_tokens
-            summary[record.model]["cache_creation_input_tokens"] += record.cache_creation_input_tokens
-            summary[record.model]["cache_read_input_tokens"] += record.cache_read_input_tokens
-            summary[record.model]["total_tokens"] += record.total_tokens
-            summary[record.model]["call_count"] += 1
-            summary[record.model]["total_duration_ms"] += record.duration_ms
+            stats = summary[record.model]
+            stats["input_tokens"] += record.input_tokens
+            stats["output_tokens"] += record.output_tokens
+            stats["cache_creation_input_tokens"] += record.cache_creation_input_tokens
+            stats["cache_read_input_tokens"] += record.cache_read_input_tokens
+            stats["total_tokens"] += record.total_tokens
+            stats["call_count"] += 1
+            stats["total_duration_ms"] += record.duration_ms
+            if record.cost_usd is None:
+                stats["cost_unknown"] += 1
+            else:
+                stats["cost_usd"] += record.cost_usd
+            if record.pricing_source:
+                stats["pricing_sources"].add(record.pricing_source)
         return summary
 
     def get_total_summary(self) -> Dict[str, int]:
@@ -157,6 +272,16 @@ class TokenTracker:
         Returns:
             Dict with total token stats
         """
+        cost_usd = 0.0
+        cost_unknown = 0
+        pricing_sources: set = set()
+        for r in self._records:
+            if r.cost_usd is None:
+                cost_unknown += 1
+            else:
+                cost_usd += r.cost_usd
+            if r.pricing_source:
+                pricing_sources.add(r.pricing_source)
         return {
             "input_tokens": sum(r.input_tokens for r in self._records),
             "output_tokens": sum(r.output_tokens for r in self._records),
@@ -169,6 +294,9 @@ class TokenTracker:
             "total_tokens": sum(r.total_tokens for r in self._records),
             "call_count": len(self._records),
             "total_duration_ms": sum(r.duration_ms for r in self._records),
+            "cost_usd": cost_usd,
+            "cost_unknown": cost_unknown,
+            "pricing_sources": pricing_sources,
         }
 
     def format_records(self, records: List[TokenRecord]) -> str:
@@ -191,6 +319,7 @@ class TokenTracker:
             lines.append(f" Tokens: {r.input_tokens}in / {r.output_tokens}out")
             lines.append(f" Cache: {r.cache_read_input_tokens}read / {r.cache_creation_input_tokens}create")
             lines.append(f" Total: {r.total_tokens} | Duration: {r.duration_ms}ms")
+            lines.append(f" Cost: {format_cost_usd(r.cost_usd)}")
         return "\n".join(lines)
 
     def format_caller_summary(self, summary: Dict[str, Dict[str, int]]) -> str:
@@ -214,6 +343,7 @@ class TokenTracker:
             lines.append(f" Cache create: {stats['cache_creation_input_tokens']}")
             lines.append(f" Total tokens: {stats['total_tokens']}")
             lines.append(f" Total duration: {stats['total_duration_ms']}ms")
+            lines.append(f" Cost: {_format_agg_cost(stats)}")
         return "\n".join(lines)
 
     def format_model_summary(self, summary: Dict[str, Dict[str, int]]) -> str:
@@ -237,6 +367,7 @@ class TokenTracker:
             lines.append(f" Cache create: {stats['cache_creation_input_tokens']}")
             lines.append(f" Total tokens: {stats['total_tokens']}")
             lines.append(f" Total duration: {stats['total_duration_ms']}ms")
+            lines.append(f" Cost: {_format_agg_cost(stats)}")
         return "\n".join(lines)
 
     def format_total_summary(self, summary: Dict[str, int]) -> str:
@@ -257,6 +388,7 @@ class TokenTracker:
             f"Cache creation input tokens: {summary['cache_creation_input_tokens']}",
             f"Total tokens: {summary['total_tokens']}",
             f"Total duration: {summary['total_duration_ms']}ms",
+            f"Total cost: {_format_agg_cost(summary)}",
         ]
         return "\n".join(lines)
 
@@ -342,6 +474,8 @@ class TokenTracker:
                 "output_tokens": r.output_tokens,
                 "cache_creation_input_tokens": r.cache_creation_input_tokens,
                 "cache_read_input_tokens": r.cache_read_input_tokens,
+                "cost_usd": r.cost_usd,
+                "pricing_source": r.pricing_source,
             })
         return result
 
@@ -360,6 +494,8 @@ class TokenTracker:
                 output_tokens=item.get("output_tokens", 0),
                 cache_creation_input_tokens=item.get("cache_creation_input_tokens", 0),
                 cache_read_input_tokens=item.get("cache_read_input_tokens", 0),
+                cost_usd=item.get("cost_usd"),
+                pricing_source=item.get("pricing_source"),
             )
             self._records.append(record)
 

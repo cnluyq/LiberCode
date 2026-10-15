@@ -70,6 +70,34 @@ Model `context_window` and `output_max` are resolved per-field in this order:
 
 For `my-custom-model`: uses 128000 / 4096 from `libercode.json`. For any model not in `libercode.json` or `models.json`: uses 256000 (hardcoded `default_context_window`) and 8192 (hardcoded `default_output_max`).
 
+### Model Pricing (cost statistics)
+
+Token cost is computed locally from a per-model `pricing` dict (USD per 1M tokens); the LLM API response contains only token counts, never cost data. Resolution order:
+
+1. **`libercode.json`** `models` entry `pricing` — user-level overrides (highest priority)
+2. **`models.json`** — system-level defaults shipped with the package
+
+**Example** — configure pricing for a model in `libercode.json`:
+
+```jsonc
+{
+  "models": {
+    "deepseek-flash": {
+      "pricing": { "input": 0.27, "output": 1.10, "cache_read": 0.07 }
+    }
+  }
+}
+```
+
+`input` and `output` are required; `cache_read` / `cache_creation` are optional and default to Anthropic's convention (0.1x / 1.25x the input price). Models without pricing show `N/A` (or "unknown pricing") in cost displays. Cost appears in the status pane Token Summary, `/tokens` outputs, and is persisted in session `token_records.json`.
+
+In addition, LiberCode automatically fetches pricing from two sources (`Config.refresh_pricing()`, run at startup, after `/connect`, and with `/model list`):
+
+1. **Connected provider's model list endpoint** — OpenRouter (`pricing.prompt` / `pricing.completion`, per-token), LiteLLM (`input_cost_per_token` / `output_cost_per_token`), and per-1M (`pricing.input` / `pricing.output`)
+2. **models.dev community catalog** (`https://models.dev/api.json`) — cached to `~/.cache/libercode/models-dev.json` for 24h, stale cache used as fallback
+
+Providers that expose no pricing and are absent from models.dev yield `N/A`. Resolution order: `libercode.json` → `models.json` → provider auto-fetch → models.dev.
+
 ### Dangerous Command Patterns
 
 Each pattern is a string in `[type:]pattern` format:

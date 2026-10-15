@@ -16,6 +16,7 @@ Model configuration follows a 3-tier priority:
 import json
 import logging
 import os
+import time
 from contextlib import contextmanager
 from importlib.resources import files as pkg_files
 from pathlib import Path
@@ -27,6 +28,9 @@ from anthropic import Anthropic, AsyncAnthropic
 from libercode.exceptions import ConfigurationError
 
 logger = logging.getLogger("libercode.config")
+
+_MODELS_DEV_URL = "https://models.dev/api.json"
+_MODELS_DEV_TTL_SECONDS = 24 * 60 * 60
 
 
 @contextmanager
@@ -243,6 +247,8 @@ class Config:
     # Runtime-switchable LLM clients (managed via connect()/set_model())
     sync_client: Any = field(default=None, init=False, repr=False)
     _env_file: Path = field(default=None, init=False, repr=False)
+    _fetched_pricing: dict = field(default_factory=dict, init=False, repr=False)
+    _pricing_sources: dict = field(default_factory=dict, init=False, repr=False)
 
     def get_model_config(self, model_id: str) -> tuple[int, int]:
         """Get context_window and output_max for a model.
@@ -271,6 +277,32 @@ class Config:
             system_cfg.get("output_max", self.default_output_max),
         )
         return context, output
+
+    def get_model_pricing(self, model_id: str) -> dict | None:
+        """Get pricing (USD per 1M tokens) for a model.
+
+        Resolution order:
+
+        1. ``libercode.json`` ``models`` entry ``pricing`` for *model_id*
+        2. System ``models.json`` entry ``pricing`` for *model_id*
+        3. Pricing fetched automatically — provider model list endpoint
+           first, then the models.dev community catalog (see
+           :meth:`refresh_pricing`)
+
+        Args:
+            model_id: Model identifier
+
+        Returns:
+            Pricing dict with optional keys ``input``, ``output``,
+            ``cache_read``, ``cache_creation``, or None if not configured
+        """
+        user_cfg = self.models.get(model_id, {})
+        pricing = user_cfg.get("pricing")
+        if pricing is None:
+            pricing = self._system_models.get(model_id, {}).get("pricing")
+        if pricing is None:
+            pricing = self._fetched_pricing.get(model_id)
+        return pricing if isinstance(pricing, dict) else None
 
     def __init__(self, env_file: str | None = None):
         """Initialize configuration from libercode.json and environment.
@@ -459,6 +491,10 @@ class Config:
         # Track .env file path for runtime persistence of /connect and /model
         self._env_file = Path(env_file) if env_file else self.workdir / ".env"
 
+        # Auto-fetched pricing caches (provider + models.dev)
+        self._fetched_pricing = {}
+        self._pricing_sources = {}
+
     def connect(self, api_key: str, base_url: str | None = None) -> None:
         """Switch the LLM provider at runtime.
 
@@ -480,6 +516,8 @@ class Config:
         self.sync_client, self.async_client = build_clients(
             self.api_key, self.base_url
         )
+        self._fetched_pricing = {}
+        self._pricing_sources = {}
         logger.info(
             f"LLM provider switched: base_url={self.base_url}, model_id={self.model_id}"
         )
@@ -501,8 +539,27 @@ class Config:
         self.model_id = model_id
         logger.info(f"Model switched to: {self.model_id}")
 
-    async def fetch_available_models(self, timeout: float = 10.0) -> list[str]:
-        """Fetch the model IDs available on the currently connected provider.
+    def get_model_pricing_source(self, model_id: str) -> str | None:
+        """Get the source of the pricing used for a model.
+
+        Args:
+            model_id: Model identifier
+
+        Returns:
+            One of "libercode.json", "models.json", "provider",
+            "models.dev", or None if no pricing is available
+        """
+        user_cfg = self.models.get(model_id, {})
+        if isinstance(user_cfg.get("pricing"), dict):
+            return "libercode.json"
+        if isinstance(self._system_models.get(model_id, {}).get("pricing"), dict):
+            return "models.json"
+        if model_id in self._fetched_pricing:
+            return self._pricing_sources.get(model_id, "provider")
+        return None
+
+    async def fetch_model_info(self, timeout: float = 10.0) -> list[dict]:
+        """Fetch raw model entries from the currently connected provider.
 
         Probes a few candidate model-list endpoints (Anthropic-style and
         OpenAI-compatible) using the current credentials.
@@ -511,8 +568,8 @@ class Config:
             timeout: Per-request HTTP timeout in seconds
 
         Returns:
-            Sorted list of model IDs, or an empty list if the provider
-            does not expose a model list
+            List of raw model entry dicts, or an empty list if the
+            provider does not expose a model list
         """
         import httpx
 
@@ -543,10 +600,10 @@ class Config:
                 async with httpx.AsyncClient(timeout=timeout) as client:
                     resp = await client.get(url, headers=headers)
                 if resp.status_code == 200:
-                    ids = self._parse_model_ids(resp.json())
-                    if ids:
-                        logger.info(f"Fetched {len(ids)} models from {url}")
-                        return ids
+                    entries = self._parse_model_entries(resp.json())
+                    if entries:
+                        logger.info(f"Fetched {len(entries)} models from {url}")
+                        return entries
                 logger.debug(
                     f"Model list endpoint {url} returned status {resp.status_code}"
                 )
@@ -556,20 +613,301 @@ class Config:
         logger.warning("Could not fetch model list from any candidate endpoint")
         return []
 
+    async def fetch_available_models(self, timeout: float = 10.0) -> list[str]:
+        """Fetch the model IDs available on the currently connected provider.
+
+        Also refreshes the auto-fetched pricing cache from any pricing data
+        exposed by the provider's model list.
+
+        Args:
+            timeout: Per-request HTTP timeout in seconds
+
+        Returns:
+            Sorted list of model IDs, or an empty list if the provider
+            does not expose a model list
+        """
+        entries = await self.fetch_model_info(timeout=timeout)
+        self.update_fetched_pricing(entries)
+        return sorted({e["id"] for e in entries if e.get("id")})
+
+    async def refresh_pricing(self, timeout: float = 10.0) -> bool:
+        """Fetch model pricing from the connected provider and models.dev.
+
+        Runs silently — failures are logged at debug level and simply leave
+        the cache empty, in which case cost displays show N/A.
+
+        Sources (highest priority first):
+        1. The connected provider's model list endpoint (if it exposes pricing)
+        2. The community models.dev catalog
+
+        Args:
+            timeout: Per-request HTTP timeout in seconds
+
+        Returns:
+            True if pricing data was obtained for at least one model
+        """
+        try:
+            entries = await self.fetch_model_info(timeout=timeout)
+        except Exception as e:
+            logger.debug(f"Provider pricing refresh failed: {e}")
+            entries = []
+        self.update_fetched_pricing(entries)
+        dev_by_provider = await self.fetch_models_dev_pricing(timeout=timeout)
+        if dev_by_provider:
+            dev_flat = self.select_models_dev_pricing(dev_by_provider)
+            for model_id, pricing in dev_flat.items():
+                if model_id not in self._fetched_pricing:
+                    self._fetched_pricing[model_id] = pricing
+                    self._pricing_sources[model_id] = "models.dev"
+        return bool(self._fetched_pricing)
+
+    async def fetch_models_dev_pricing(self, timeout: float = 15.0) -> dict:
+        """Fetch the models.dev community pricing catalog.
+
+        Results are cached to ``~/.cache/libercode/models-dev.json`` for 24h;
+        a stale cache is used as fallback when the network fetch fails.
+
+        Args:
+            timeout: Per-request HTTP timeout in seconds
+
+        Returns:
+            Dict mapping provider IDs to ``{model_id: pricing}`` dicts
+            (USD per 1M tokens)
+        """
+        import httpx
+
+        cache_path = Path.home() / ".cache" / "libercode" / "models-dev.json"
+        if cache_path.exists():
+            age = time.time() - cache_path.stat().st_mtime
+            if 0 <= age < _MODELS_DEV_TTL_SECONDS:
+                try:
+                    return self._build_models_dev_pricing_map(
+                        json.loads(cache_path.read_text(encoding="utf-8"))
+                    )
+                except Exception as e:
+                    logger.debug(f"Failed to read models.dev cache: {e}")
+
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                resp = await client.get(_MODELS_DEV_URL)
+            if resp.status_code == 200:
+                text = resp.text
+                try:
+                    cache_path.parent.mkdir(parents=True, exist_ok=True)
+                    cache_path.write_text(text, encoding="utf-8")
+                except Exception as e:
+                    logger.debug(f"Failed to cache models.dev data: {e}")
+                return self._build_models_dev_pricing_map(json.loads(text))
+        except Exception as e:
+            logger.debug(f"models.dev fetch failed: {e}")
+
+        if cache_path.exists():
+            try:
+                return self._build_models_dev_pricing_map(
+                    json.loads(cache_path.read_text(encoding="utf-8"))
+                )
+            except Exception as e:
+                logger.debug(f"Failed to read stale models.dev cache: {e}")
+        return {}
+
+    def select_models_dev_pricing(self, by_provider: dict) -> dict:
+        """Flatten per-provider pricing into a model-id map.
+
+        The provider matching the connected ``base_url`` host wins for
+        models it lists; remaining models are filled from other providers
+        (first seen wins).
+
+        Args:
+            by_provider: ``{provider_id: {model_id: pricing}}`` map
+
+        Returns:
+            Flat ``{model_id: pricing}`` dict
+        """
+        merged: dict = {}
+        provider_id = self._guess_provider_id()
+        if provider_id and provider_id in by_provider:
+            merged.update(by_provider[provider_id])
+        for pid, pmap in by_provider.items():
+            if pid == provider_id:
+                continue
+            for model_id, pricing in pmap.items():
+                merged.setdefault(model_id, pricing)
+        return merged
+
+    def _guess_provider_id(self) -> str | None:
+        """Guess the models.dev provider ID from the connected base URL."""
+        if not self.base_url:
+            return "anthropic"
+        try:
+            from urllib.parse import urlparse
+
+            host = (urlparse(self.base_url).hostname or "").lower()
+        except Exception:
+            return None
+        return {
+            "api.deepseek.com": "deepseek",
+            "api.anthropic.com": "anthropic",
+            "api.openai.com": "openai",
+            "openrouter.ai": "openrouter",
+            "api.moonshot.cn": "moonshotai",
+            "api.stepfun.com": "stepfun",
+            "api.minimax.io": "minimax",
+            "api.minimaxi.com": "minimax",
+            "api.z.ai": "zai",
+            "dashscope.aliyuncs.com": "dashscope",
+            "api.mistral.ai": "mistral",
+            "api.x.ai": "xai",
+            "generativelanguage.googleapis.com": "google",
+            "api.groq.com": "groq",
+            "api.cerebras.ai": "cerebras",
+            "api.together.xyz": "together",
+            "api.perplexity.ai": "perplexity",
+            "api.siliconflow.cn": "siliconflow",
+        }.get(host)
+
     @staticmethod
-    def _parse_model_ids(data: Any) -> list[str]:
-        """Extract model IDs from an Anthropic- or OpenAI-style models payload."""
+    def _build_models_dev_pricing_map(data: Any) -> dict:
+        """Build a per-provider model pricing map from a models.dev catalog.
+
+        The catalog is keyed by provider; pricing is attached per model as a
+        ``cost`` dict (USD per 1M tokens) with optional keys ``input``,
+        ``output``, ``cache_read``, ``cache_write``. ``cache_write`` is
+        mapped to our ``cache_creation`` key; the ``reasoning`` field is
+        ignored (reasoning tokens are not tracked separately).
+        """
+        by_provider: dict = {}
+        if not isinstance(data, dict):
+            return by_provider
+        for provider_id, provider in data.items():
+            if not isinstance(provider, dict):
+                continue
+            models = provider.get("models")
+            if not isinstance(models, dict):
+                continue
+            pmap: dict = {}
+            for model_id, entry in models.items():
+                if not isinstance(entry, dict):
+                    continue
+                cost = entry.get("cost")
+                if not isinstance(cost, dict):
+                    continue
+                try:
+                    p_input = float(cost["input"])
+                    p_output = float(cost["output"])
+                except (KeyError, TypeError, ValueError):
+                    continue
+                pricing = {"input": p_input, "output": p_output}
+                if cost.get("cache_read") is not None:
+                    try:
+                        pricing["cache_read"] = float(cost["cache_read"])
+                    except (TypeError, ValueError):
+                        pass
+                if cost.get("cache_write") is not None:
+                    try:
+                        pricing["cache_creation"] = float(cost["cache_write"])
+                    except (TypeError, ValueError):
+                        pass
+                pmap[model_id] = pricing
+            if pmap:
+                by_provider[provider_id] = pmap
+        return by_provider
+
+    def update_fetched_pricing(self, entries: list[dict]) -> None:
+        """Rebuild the fetched pricing cache from raw model entries.
+
+        Args:
+            entries: List of raw model entry dicts from the provider
+        """
+        fetched: dict = {}
+        for entry in entries:
+            model_id = entry.get("id") if isinstance(entry, dict) else None
+            if not model_id:
+                continue
+            pricing = self._extract_pricing(entry)
+            if pricing:
+                fetched[model_id] = pricing
+        # Preserve models.dev pricing for models the provider does not price
+        dev_entries = {
+            mid: self._fetched_pricing[mid]
+            for mid, src in self._pricing_sources.items()
+            if src == "models.dev" and mid in self._fetched_pricing
+        }
+        self._fetched_pricing = {**dev_entries, **fetched}
+        self._pricing_sources = {
+            **{mid: "models.dev" for mid in dev_entries},
+            **{mid: "provider" for mid in fetched},
+        }
+        if fetched:
+            logger.info(f"Obtained pricing for {len(fetched)} models from provider")
+
+    @staticmethod
+    def _extract_pricing(entry: dict) -> dict | None:
+        """Normalize provider-specific pricing into a per-1M-token USD dict.
+
+        Recognizes:
+
+        - OpenRouter style: ``pricing.prompt`` / ``pricing.completion``
+          (per-token USD)
+        - Per-1M convention: ``pricing.input`` / ``pricing.output``
+        - LiteLLM style: ``input_cost_per_token`` / ``output_cost_per_token``
+          (per-token USD)
+
+        Args:
+            entry: Raw model entry dict
+
+        Returns:
+            Pricing dict with optional ``input``, ``output``, ``cache_read``,
+            ``cache_creation`` keys, or None if no pricing is exposed
+        """
+        pricing = entry.get("pricing")
+        if isinstance(pricing, dict):
+            prompt = pricing.get("prompt")
+            completion = pricing.get("completion")
+            if prompt is not None and completion is not None:
+                try:
+                    return {
+                        "input": float(prompt) * 1_000_000,
+                        "output": float(completion) * 1_000_000,
+                    }
+                except (TypeError, ValueError):
+                    return None
+            p_in = pricing.get("input")
+            p_out = pricing.get("output")
+            if p_in is not None and p_out is not None:
+                try:
+                    result = {"input": float(p_in), "output": float(p_out)}
+                except (TypeError, ValueError):
+                    return None
+                for key in ("cache_read", "cache_creation"):
+                    value = pricing.get(key)
+                    if value is not None:
+                        try:
+                            result[key] = float(value)
+                        except (TypeError, ValueError):
+                            pass
+                return result
+        in_per_token = entry.get("input_cost_per_token")
+        out_per_token = entry.get("output_cost_per_token")
+        if in_per_token is not None and out_per_token is not None:
+            try:
+                return {
+                    "input": float(in_per_token) * 1_000_000,
+                    "output": float(out_per_token) * 1_000_000,
+                }
+            except (TypeError, ValueError):
+                return None
+        return None
+
+    @staticmethod
+    def _parse_model_entries(data: Any) -> list[dict]:
+        """Extract model entry dicts from an Anthropic- or OpenAI-style payload."""
         if isinstance(data, dict):
             for field in ("data", "models"):
                 items = data.get(field)
                 if isinstance(items, list):
-                    ids = [
-                        item.get("id")
-                        for item in items
-                        if isinstance(item, dict) and item.get("id")
-                    ]
-                    if ids:
-                        return sorted(ids)
+                    entries = [item for item in items if isinstance(item, dict)]
+                    if entries:
+                        return entries
         return []
 
     def persist_env(self) -> None:
