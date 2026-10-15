@@ -340,10 +340,10 @@ class SessionManager:
         if len(user_messages) < 2:
             return None
 
-        from anthropic import AsyncAnthropic
+        from libercode.config import build_async_client
         from libercode.messaging.serialization import serialize_content
 
-        async_client = AsyncAnthropic(api_key=self.lead.config.api_key, base_url=self.lead.config.base_url)
+        async_client = build_async_client(self.lead.config.api_key, self.lead.config.base_url)
 
         history_text = serialize_content(messages)
         summary_prompt = f"""Based on the following conversation history, summarize the main topic or task into a single concise phrase. The summary must be no more than 50 characters (50个字或字符，中英文均适用). Only output the summary phrase, nothing else.

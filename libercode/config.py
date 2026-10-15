@@ -16,6 +16,7 @@ Model configuration follows a 3-tier priority:
 import json
 import logging
 import os
+from contextlib import contextmanager
 from importlib.resources import files as pkg_files
 from pathlib import Path
 from dataclasses import dataclass, field
@@ -26,6 +27,60 @@ from anthropic import Anthropic, AsyncAnthropic
 from libercode.exceptions import ConfigurationError
 
 logger = logging.getLogger("libercode.config")
+
+
+@contextmanager
+def _isolate_anthropic_env():
+    """Temporarily hide ANTHROPIC credential env vars.
+
+    Older anthropic SDK versions (e.g. 0.86.0) unconditionally fall back to
+    the ``ANTHROPIC_AUTH_TOKEN`` / ``ANTHROPIC_API_KEY`` env vars even when
+    an explicit ``api_key=`` is passed, which silently authenticates with a
+    stale token. Hiding them while constructing clients guarantees the
+    explicit key is the only credential used.
+    """
+    saved = {
+        var: os.environ.pop(var)
+        for var in ("ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY")
+        if var in os.environ
+    }
+    try:
+        yield
+    finally:
+        os.environ.update(saved)
+
+
+def build_async_client(api_key: str, base_url: str | None = None) -> AsyncAnthropic:
+    """Build an AsyncAnthropic client using only the explicit credentials.
+
+    Args:
+        api_key: API key to authenticate with
+        base_url: Optional base URL (None uses the SDK default)
+
+    Returns:
+        Configured AsyncAnthropic client
+    """
+    with _isolate_anthropic_env():
+        return AsyncAnthropic(api_key=api_key, base_url=base_url)
+
+
+def build_clients(
+    api_key: str, base_url: str | None = None
+) -> tuple[Anthropic, AsyncAnthropic]:
+    """Build sync and async Anthropic clients using only explicit credentials.
+
+    Args:
+        api_key: API key to authenticate with
+        base_url: Optional base URL (None uses the SDK default)
+
+    Returns:
+        Tuple of (sync client, async client)
+    """
+    with _isolate_anthropic_env():
+        return (
+            Anthropic(api_key=api_key, base_url=base_url),
+            AsyncAnthropic(api_key=api_key, base_url=base_url),
+        )
 
 
 _DEFAULT_DANGEROUS_COMMAND_PATTERNS = [
@@ -396,13 +451,10 @@ class Config:
         self.default_context_window = int(_DEFAULTS["default_context_window"])
         self.default_output_max = int(_DEFAULTS["default_output_max"])
 
-        # Initialize async client for interruptible LLM calls
-        self.async_client = AsyncAnthropic(
-            api_key=self.api_key, base_url=self.base_url
+        # Initialize sync + async clients for LLM calls
+        self.sync_client, self.async_client = build_clients(
+            self.api_key, self.base_url
         )
-
-        # Initialize sync client for teammate threads
-        self.sync_client = Anthropic(api_key=self.api_key, base_url=self.base_url)
 
         # Track .env file path for runtime persistence of /connect and /model
         self._env_file = Path(env_file) if env_file else self.workdir / ".env"
@@ -425,9 +477,8 @@ class Config:
             raise ConfigurationError("API key cannot be empty")
         self.api_key = api_key
         self.base_url = base_url or None
-        self.sync_client = Anthropic(api_key=self.api_key, base_url=self.base_url)
-        self.async_client = AsyncAnthropic(
-            api_key=self.api_key, base_url=self.base_url
+        self.sync_client, self.async_client = build_clients(
+            self.api_key, self.base_url
         )
         logger.info(
             f"LLM provider switched: base_url={self.base_url}, model_id={self.model_id}"
