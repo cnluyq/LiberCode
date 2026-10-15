@@ -547,20 +547,17 @@ class SessionRecoveryManager:
                 continue
 
             meta_path = session_path / "meta.json"
-            if meta_path.exists():
-                try:
-                    meta = json.loads(meta_path.read_text())
-                    sessions.append(meta)
-                except Exception:
-                    sessions.append({
-                        "session_name": session_path.name,
-                        "error": "Failed to read meta.json"
-                    })
-            else:
+            if not meta_path.exists():
+                # Not a valid session (e.g. a log-only directory created by
+                # setup_logging before a session was created) — skip it.
+                continue
+            try:
+                meta = json.loads(meta_path.read_text())
+                sessions.append(meta)
+            except Exception:
                 sessions.append({
                     "session_name": session_path.name,
-                    "created_at": "unknown",
-                    "updated_at": "unknown",
+                    "error": "Failed to read meta.json"
                 })
 
         sessions.sort(key=lambda x: x.get("updated_at", ""), reverse=True)

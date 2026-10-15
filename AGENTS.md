@@ -18,10 +18,13 @@ No tests, linter, or typechecker configured.
 
 ```bash
 libercode # unified command: auto-detects tmux (see below)
+libercode -c # continue the most recent saved session (also: --continue)
 python -m libercode # alternative entry point
 ```
 
 Startup auto-detection (`cli.py:_maybe_relaunch_in_tmux`): if the `tmux` binary exists, stdin/stdout are terminals, and we are not already inside tmux, LiberCode re-executes itself inside a `tmux new-session -s LiberCode` session (full UI with status pane). If a `LiberCode` session already exists it attaches to it instead. Otherwise (no tmux, non-tty, or tmux failure) it runs directly without a status pane.
+
+With `-c` / `--continue`, LiberCode restores the most recent saved session at startup (`cli.py:_restore_latest_session`, via `SessionRecoveryManager.restore_session`): lead messages, tasks, teammates, inboxes, and token records. If no saved sessions exist it falls back to a fresh session. Note: `SessionRecoveryManager.list_sessions` skips session directories without a `meta.json` (e.g. log-only dirs created by `setup_logging`).
 
 Entry point: `libercode/cli.py:main` (registered in `pyproject.toml` as `libercode` console script).
 

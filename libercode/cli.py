@@ -59,6 +59,79 @@ def _mask_key(api_key: str) -> str:
     return f"{api_key[:4]}...{api_key[-4:]}"
 
 
+def _restore_latest_session(
+    session_manager, lead, teammate_manager, task_manager, message_bus, log
+) -> bool:
+    """Restore the most recently saved session (used by -c / --continue).
+
+    Args:
+        session_manager: SessionManager instance (no current session yet)
+        lead: LeadAgent instance
+        teammate_manager: TeammateManager instance
+        task_manager: TaskManager instance
+        message_bus: MessageBus instance
+        log: Logger instance
+
+    Returns:
+        True if a session was restored, False otherwise (no sessions found
+        or restore failed)
+    """
+    recovery_manager = SessionRecoveryManager(Path.cwd())
+    sessions = recovery_manager.list_sessions()
+    if not sessions:
+        tprint("No saved sessions found to continue.")
+        return False
+    latest = sessions[0]
+    session_name = latest.get("session_name")
+    if not session_name:
+        tprint("No saved sessions found to continue.")
+        return False
+    subject = latest.get("subject", "") or session_name
+    tprint(f"Continuing session: {subject}")
+    log.info(f"Restoring latest session: {session_name}")
+    summary = recovery_manager.restore_session(
+        session_name=session_name,
+        lead=lead,
+        teammate_manager=teammate_manager,
+        task_manager=task_manager,
+        message_bus=message_bus,
+    )
+    if "error" in summary:
+        tprint(f"Restore failed: {summary['error']}")
+        return False
+
+    session_manager._current_session = None
+    session_path = session_manager._get_session_path(session_name)
+    if session_path.exists():
+        meta_path = session_path / "meta.json"
+        meta_data = json.loads(meta_path.read_text()) if meta_path.exists() else {}
+        session_manager._current_session = SessionMeta(
+            session_id=meta_data.get("session_id", ""),
+            session_name=session_name,
+            subject=meta_data.get("subject", ""),
+            created_at=meta_data.get("created_at", ""),
+            updated_at=datetime.now().isoformat(),
+            save_count=0,
+            interval_seconds=1.0,
+        )
+    else:
+        session_manager.create_session(session_name)
+    session_manager._file_mtimes.clear()
+
+    restored = summary.get("restored", {})
+    tprint(f"Session restored: {session_name}")
+    if "tasks" in restored:
+        tprint(f"  Tasks: {restored['tasks']} restored")
+    if "lead_messages" in restored:
+        tprint(f"  Lead messages: {restored['lead_messages']} restored")
+    if "teammates" in restored:
+        for tm in restored["teammates"]:
+            tprint(f"  Teammate '{tm['name']}': {tm['messages']} messages restored")
+    if "token_records" in restored:
+        tprint(f"  Token records: {restored['token_records']} restored")
+    return True
+
+
 def _maybe_relaunch_in_tmux() -> None:
     """Re-exec inside a tmux session when tmux is available but not active.
 
@@ -162,6 +235,7 @@ def main():
     )
     log.info("Lead agent initialized")
 
+    continue_last = any(a in ("-c", "--continue") for a in sys.argv[1:])
     session_manager = SessionManager(
         session_dir=config.workdir,
         lead=lead,
@@ -169,7 +243,12 @@ def main():
         task_manager=task_manager,
         message_bus=message_bus,
     )
-    session_manager.create_session(session_name)
+    if continue_last and _restore_latest_session(
+        session_manager, lead, teammate_manager, task_manager, message_bus, log
+    ):
+        log.info("Continued from latest session; skipping new session creation")
+    else:
+        session_manager.create_session(session_name)
     auto_saver = AutoSaver(session_manager, initial_interval=config.session_auto_save_interval)
     log.info("Session manager initialized")
 

@@ -185,6 +185,9 @@ Each pattern is a string in `[type:]pattern` format:
 # Otherwise it runs directly (no status display).
 libercode
 
+# Continue the most recent session
+libercode -c   # or: libercode --continue
+
 # example：
 [user@localhost ~] libercode
 LiberCode - AI Agent for Teams
