@@ -38,6 +38,21 @@ PROMPT_PLAIN = '[LiberCode] \u276f\u276f'
 
 PROMPT_ANSI = '\033[1;97m[\033[0m\033[1;92mLiberCode\033[0m\033[1;97m]\033[0m\033[1;96m \u276f\u276f \033[0m'
 
+_shared_history = None
+
+def _get_shared_history():
+    """Return the process-wide shared input history.
+
+    Kept as a module-level singleton so up/down arrow history navigation
+    works across separate prompt calls (each call creates a new
+    PromptSession, but they must share the same history).
+    """
+    global _shared_history
+    if _shared_history is None:
+        from prompt_toolkit.history import InMemoryHistory
+        _shared_history = InMemoryHistory()
+    return _shared_history
+
 
 class MultiLineInput:
     """Enhanced multi-line input handler with special features."""
@@ -225,12 +240,15 @@ def input_with_cursor_support(
             else:
                 clean_text = text.replace(multiline_char, "")
                 result["text"] = clean_text
+                if getattr(buf, "history", None) is not None:
+                    buf.history.append_string(clean_text)
                 app.exit()
 
         session = PromptSession(
             message=message,
             key_bindings=kb,
             style=style,
+            history=_get_shared_history(),
         )
 
         session.prompt()
