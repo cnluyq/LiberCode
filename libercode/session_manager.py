@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 import re
 
 from libercode.utils.logging import get_logger, switch_log_dir
-from libercode.messaging.serialization import serialize_content
+from libercode.messaging.serialization import serialize_content, normalize_messages
 from libercode.utils.token_tracker import TokenTracker
 from libercode.ui.output import tprint
 from libercode.core.context_compact import CompactionTracker
@@ -323,7 +323,7 @@ class SessionManager:
         with self._lock:
             if self._current_session.subject:
                 return
-            self._current_session.subject = text.strip()[:20]
+            self._current_session.subject = text.strip()[:100]
             self._save_meta()
             self._logger.info(f"Session subject set: {self._current_session.subject}")
 
@@ -337,11 +337,12 @@ class SessionManager:
             return None
 
         user_messages = [m for m in messages if isinstance(m, dict) and m.get("role") == "user"]
-        if len(user_messages) < 2:
+        if not user_messages:
             return None
 
         from libercode.config import build_async_client
         from libercode.messaging.serialization import serialize_content
+        from libercode.ui.output import extract_llm_text
 
         async_client = build_async_client(self.lead.config.api_key, self.lead.config.base_url)
 
@@ -364,7 +365,7 @@ Summary (max 50 characters):"""
             if not response.content:
                 self._logger.debug(f"generate_subject: content filtered or empty (stop_reason={getattr(response, 'stop_reason', None)}), will retry")
                 return None
-            summary = response.content[0].text.strip()
+            summary = extract_llm_text(response).strip()
             if summary and len(summary) <= 50:
                 self.update_subject(summary)
                 self._logger.info(f"Session subject generated via LLM: {summary}")
@@ -474,10 +475,11 @@ def _extract_text_from_deserialized_content(content) -> str:
 
 
 def replay_message_history(messages: List[Dict], agent_label: str = "", tools_schema_list: Optional[List[Dict]] = None, output_target=None) -> None:
-    """Replay assistant message history by printing text and tool calls.
+    """Replay restored message history by printing text and tool calls.
 
-    Iterates through restored messages and prints each assistant response's
-    text content (in cyan/bold) and tool use blocks (with validated args preview).
+    Clears the output target first, then iterates through restored messages
+    and prints each user input (green) and assistant response's text content
+    (cyan/bold) plus tool use blocks (with validated args preview).
 
     Args:
         messages: List of message dicts (deserialized from session JSON).
@@ -486,16 +488,36 @@ def replay_message_history(messages: List[Dict], agent_label: str = "", tools_sc
         output_target: Optional file-like object to redirect output to (e.g. teammate pty_file).
                        When provided, tprint output is temporarily redirected to this target.
     """
+    import sys as _sys
+
     from libercode.tools.validator import validate_and_fix_args
     from libercode.ui.output import OutputManager
 
+    def _clear_screen(target) -> None:
+        try:
+            target.write("\033[2J\033[3J\033[H")
+            target.flush()
+        except Exception:
+            pass
+
     def _do_replay():
-        label_prefix = f"[{agent_label}] " if agent_label else ""
         for msg in messages:
-            if not isinstance(msg, dict) or msg.get("role") != "assistant":
+            if not isinstance(msg, dict):
                 continue
 
+            role = msg.get("role")
             content = msg.get("content", [])
+
+            if role == "user" and isinstance(content, str):
+                if content.startswith("<project_instructions>"):
+                    continue
+                tprint()
+                tprint(f"[LiberCode] \u276f {content}", color="green", style="bold")
+                continue
+
+            if role != "assistant":
+                continue
+
             text = _extract_text_from_deserialized_content(content)
             if text:
                 tprint()
@@ -521,10 +543,12 @@ def replay_message_history(messages: List[Dict], agent_label: str = "", tools_sc
                         tprint(f"Executing tool: {tool_name}, args: {args_substr}")
 
     if output_target is not None:
+        _clear_screen(output_target)
         om = OutputManager()
         with om.redirect(output_target):
             _do_replay()
     else:
+        _clear_screen(_sys.stdout)
         _do_replay()
 
 
@@ -674,7 +698,7 @@ class SessionRecoveryManager:
         if lead and lead_src.exists():
             try:
                 lead_data = json.loads(lead_src.read_text())
-                lead.messages = lead_data.get("messages", [])
+                lead.messages = normalize_messages(lead_data.get("messages", []))
                 lead._agents_md_injected = True
                 input_count = sum(
                     1 for m in lead.messages
@@ -747,7 +771,9 @@ class SessionRecoveryManager:
                         if msg_file.exists():
                             try:
                                 msg_data = json.loads(msg_file.read_text())
-                                restored_messages = msg_data.get("messages", [])
+                                restored_messages = normalize_messages(
+                                    msg_data.get("messages", [])
+                                )
                             except Exception as e:
                                 _logger.warning(f"Failed to load messages for {name}: {e}")
 

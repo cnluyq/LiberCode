@@ -229,6 +229,7 @@ These runtime directories (`.team/`, `.tasks/`) are cleaned up on exit unless se
 - Python >=3.10, type hints throughout, docstrings on public APIs
 - Custom exception hierarchy in `exceptions.py` — always use these, never `raise Exception`
 - Both lead and teammate agents read `AGENTS.md` or `CLAUDE.md` from project root as `<project_instructions>` — injected once, never re-injected
+- `libercode/ui/input_handler.py` sets `PROMPT_TOOLKIT_NO_CPR=1` at import time: the REPL is a single-line prompt with no bottom floating menus, so prompt_toolkit's cursor position requests (CPR, `\x1b[6n`) are disabled — otherwise a slow/missing CPR response would print "your terminal doesn't support cursor position requests (CPR)" into the prompt and leave stale escape sequences in the input stream
 - Task JSON files use legacy key `blockedBy` in serialization (`Task.from_dict` accepts both `blockedBy` and `blocked_by`, but `to_dict` always writes `blockedBy`)
 - Prompts are shipped as package data (`libercode/prompts/*.txt`) via `pyproject.toml` `[tool.setuptools.package-data]`
 - System model defaults are shipped as package data (`libercode/models.json`) via `pyproject.toml` — loaded by `_load_system_models()` in `config.py`

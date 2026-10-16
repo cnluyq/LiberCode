@@ -132,6 +132,9 @@ def _restore_latest_session(
     return True
 
 
+_LAUNCH_ENV_VARS = ("LLM_API_KEY", "MODEL_ID", "LLM_BASE_URL")
+
+
 def _maybe_relaunch_in_tmux() -> None:
     """Re-exec inside a tmux session when tmux is available but not active.
 
@@ -149,6 +152,22 @@ def _maybe_relaunch_in_tmux() -> None:
     if not tmux_bin:
         return
     try:
+        # When a tmux server is already running, new sessions only inherit
+        # the server's environment (plus tmux's update-environment list),
+        # not the environment of the client creating them. Pull the LLM
+        # credentials/model env vars from this client into new sessions,
+        # otherwise the relaunched libercode would not see them.
+        subprocess.run(
+            [
+                tmux_bin,
+                "set",
+                "-g",
+                "-a",
+                "update-environment",
+                " ".join(_LAUNCH_ENV_VARS),
+            ],
+            capture_output=True,
+        )
         has_session = (
             subprocess.run(
                 [tmux_bin, "has-session", "-t", "LiberCode"],
@@ -171,12 +190,76 @@ def _maybe_relaunch_in_tmux() -> None:
         pass  # tmux failed for some reason; continue without it
 
 
+def _check_duplicate_instance() -> bool:
+    """Check whether another libercode instance runs in this tmux window.
+
+    Inside tmux, launching libercode directly would create a second status
+    pane (and a second REPL) in the same window. Detect the existing
+    instance via the status pane's title (``pane N:Status``).
+
+    Returns:
+        True if another instance is already running in this window
+    """
+    pane_id = os.environ.get("TMUX_PANE")
+    if not pane_id:
+        return False
+    try:
+        result = subprocess.run(
+            ["tmux", "list-panes", "-t", pane_id, "-F", "#{pane_index} #{pane_title}"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except Exception:
+        return False
+    if result.returncode != 0:
+        return False
+    for line in result.stdout.splitlines():
+        parts = line.split(None, 1)
+        if len(parts) == 2 and parts[1].endswith(":Status"):
+            return True
+    return False
+
+
+def _print_usage() -> None:
+    """Print command-line usage."""
+    tprint("Usage: libercode [-c|--continue]")
+    tprint("  -c, --continue  Continue the most recent saved session")
+    tprint("  -h, --help      Show this help message")
+
+
 def main():
     """Main CLI entry point.
 
     Initializes all components and runs REPL loop.
     """
+    args = sys.argv[1:]
+    if "-h" in args or "--help" in args:
+        _print_usage()
+        return 0
+    unknown_flags = [
+        a for a in args if a.startswith("-") and a not in ("-c", "--continue")
+    ]
+    if unknown_flags:
+        tprint(f"Error: unknown option(s): {' '.join(unknown_flags)}")
+        _print_usage()
+        return 1
+    unknown_args = [a for a in args if not a.startswith("-")]
+    if unknown_args:
+        tprint(f"Error: unexpected argument(s): {' '.join(unknown_args)}")
+        _print_usage()
+        return 1
+
     _maybe_relaunch_in_tmux()
+    if _check_duplicate_instance():
+        tprint(
+            "LiberCode is already running in this tmux window. "
+            "Switch to that pane or quit the running instance first."
+        )
+        return 0
+    if not sys.stdin.isatty() or not sys.stdout.isatty():
+        tprint("Error: libercode requires an interactive terminal.")
+        return 1
     session_name = _generate_session_name()
     logger = setup_logging(
         session_name=session_name,
@@ -584,7 +667,9 @@ async def async_repl_loop(lead, message_bus, task_manager, teammate_manager, log
                                 created = sess.get("created_at", "unknown")
                                 updated = sess.get("updated_at", "unknown")
                                 session_name = sess.get("session_name", "unknown")
-                                subject = sess.get("subject", "")
+                                subject = (
+                                    sess.get("subject", "") or session_name
+                                )
                                 save_count = sess.get("save_count", 0)
                                 if session_name == current_session_name:
                                     tprint(f" {i}. {subject} (current)")

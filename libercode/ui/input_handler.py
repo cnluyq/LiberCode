@@ -9,6 +9,7 @@ Features:
 
 import sys
 import time
+import os
 from typing import Optional, Callable
 from prompt_toolkit import Application
 from prompt_toolkit.buffer import Buffer
@@ -19,6 +20,14 @@ from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.layout.layout import Layout
 from prompt_toolkit.styles import Style
 from prompt_toolkit.formatted_text import FormattedText
+
+# The REPL prompt is a single-line prompt without bottom floating menus, so
+# cursor position requests (CPR, \x1b[6n) are useless here. Disable them
+# globally to avoid prompt_toolkit's CPR probe: a slow/missing response would
+# otherwise print "your terminal doesn't support cursor position requests
+# (CPR)" into the prompt and leave stale \x1b[r;cR sequences in the input
+# stream (which corrupts subsequent prompt sessions).
+os.environ.setdefault("PROMPT_TOOLKIT_NO_CPR", "1")
 
 PROMPT_STYLE = Style.from_dict({
     'prompt.bracket': 'bold #cccccc',

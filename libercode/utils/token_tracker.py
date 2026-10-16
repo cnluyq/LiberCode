@@ -77,7 +77,7 @@ def _format_agg_cost(stats: Dict) -> str:
     sources = stats.get("pricing_sources") or set()
     if sources:
         labels = [_SOURCE_LABELS.get(s, s) for s in sorted(sources)]
-        text += f" (estimated, unit prices from {', '.join(labels)})"
+        text += f" (estimated by {', '.join(labels)})"
     return text
 
 
