@@ -521,7 +521,7 @@ def replay_message_history(messages: List[Dict], agent_label: str = "", tools_sc
             text = _extract_text_from_deserialized_content(content)
             if text:
                 tprint()
-                tprint(text, color="cyan", style="bold")
+                tprint(f"● {text}", color="cyan", style="bold")
 
             if isinstance(content, list):
                 for block in content:

@@ -309,7 +309,7 @@ class TeammateAgent:
                     text = extract_llm_text(response)
                     if text:
                         tprint()
-                        tprint(text, color="cyan", style="bold")
+                        tprint(f"● {text}", color="cyan", style="bold")
 
                     # Execute tools
                     results = []

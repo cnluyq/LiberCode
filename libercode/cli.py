@@ -922,7 +922,7 @@ async def run_llm_with_interrupt(lead, message, log):
                 if hasattr(block, "text"):
                     text = block.text.strip()
                     if text:
-                        tprint(text, color="cyan", style="bold")
+                        tprint(f"● {text}", color="cyan", style="bold")
 
 
 if __name__ == "__main__":

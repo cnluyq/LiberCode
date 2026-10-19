@@ -174,6 +174,7 @@ class OutputManager:
 
 # Global function for convenience
 tprint = OutputManager.tprint
+tprint_tool = OutputManager.tprint_tool
 
 
 def extract_llm_text(response) -> str:
