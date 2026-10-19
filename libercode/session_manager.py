@@ -20,7 +20,7 @@ import re
 from libercode.utils.logging import get_logger, switch_log_dir
 from libercode.messaging.serialization import serialize_content, normalize_messages
 from libercode.utils.token_tracker import TokenTracker
-from libercode.ui.output import tprint
+from libercode.ui.output import tprint, tprint_tool
 from libercode.core.context_compact import CompactionTracker
 
 
@@ -540,7 +540,7 @@ def replay_message_history(messages: List[Dict], agent_label: str = "", tools_sc
 
                         args_repr = str(fixed_args)
                         args_substr = args_repr[:100] + ("..." if len(args_repr) > 100 else "")
-                        tprint(f"Executing tool: {tool_name}, args: {args_substr}")
+                        tprint_tool(tool_name, args_substr)
 
     if output_target is not None:
         _clear_screen(output_target)

@@ -4,7 +4,7 @@ UI components for LiberCode.
 Provides output management and tmux integration.
 """
 
-from libercode.ui.output import OutputManager, tprint
+from libercode.ui.output import OutputManager, tprint, tprint_tool
 from libercode.ui.tmux import (
     TmuxError,
     TmuxPaneContext,
@@ -23,6 +23,7 @@ __all__ = [
     # Output management
     "OutputManager",
     "tprint",
+    "tprint_tool",
     # Tmux integration
     "TmuxError",
     "TmuxPaneContext",

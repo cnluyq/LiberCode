@@ -17,7 +17,7 @@ from libercode.messaging.protocol import Message, MessageType
 from libercode.messaging.serialization import serialize_content
 from libercode.utils.token_tracker import TokenTracker
 from libercode.utils.logging import get_logger, log_task_event, log_agent_event
-from libercode.ui.output import tprint, extract_llm_text
+from libercode.ui.output import tprint, tprint_tool, extract_llm_text
 
 from pathlib import Path
 
@@ -470,7 +470,7 @@ class TeammateAgent:
         )
 
         args_substr = str(fixed_args)[:100] + ("..." if len(str(fixed_args)) > 100 else "")
-        tprint(f"Executing tool: {tool_name}, args: {args_substr}")
+        tprint_tool(tool_name, args_substr)
         self._logger.info(f"Executing tool: {tool_name}, args:\n{fixed_args}")
         handler = handlers.get(tool_name)
         if not handler:

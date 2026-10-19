@@ -132,6 +132,16 @@ class OutputManager:
             pass
 
     @staticmethod
+    def tprint_tool(tool_name: str, args_repr: str) -> None:
+        """
+        Print a tool-execution line in a visually distinct format.
+
+        Indented and dimmed (gray) so that main assistant messages
+        (printed with a leading '●') remain prominent.
+        """
+        OutputManager.tprint(f"    ▸ {tool_name}: {args_repr}", color="90")
+
+    @staticmethod
     def tprint_simple(*args, **kwargs) -> None:
         """
         Thread-safe print function.

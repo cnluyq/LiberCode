@@ -19,7 +19,7 @@ from libercode.messaging.bus import MessageBus
 from libercode.messaging.serialization import serialize_content
 from libercode.utils.token_tracker import TokenTracker
 from libercode.utils.logging import get_logger, log_task_event, log_agent_event
-from libercode.ui.output import tprint, extract_llm_text
+from libercode.ui.output import tprint, tprint_tool, extract_llm_text
 from libercode.exceptions import LLMInternalError, LLMRateLimitError
 from libercode.core.interrupt_handler import check_cancel, request_cancel, clear_cancel
 from libercode.core.context_compact import tool_result_compact, async_compact_history, async_reactive_compact, needs_compact, CompactionTracker, MAX_REACTIVE_RETRIES
@@ -378,7 +378,7 @@ class LeadAgent:
         )
 
         args_substr = str(fixed_args)[:100] + ("..." if len(str(fixed_args)) > 100 else "")
-        tprint(f"Executing tool: {tool_name}, args: {args_substr}")
+        tprint_tool(tool_name, args_substr)
         self._logger.info(f"Executing tool: {tool_name}, args:\n{fixed_args}")
         handler = handlers.get(tool_name)
         if not handler:
