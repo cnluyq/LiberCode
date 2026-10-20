@@ -119,7 +119,7 @@ def _restore_latest_session(
     session_manager._file_mtimes.clear()
 
     restored = summary.get("restored", {})
-    tprint(f"Session restored: {session_name}")
+    tprint(f"Session restored: {subject}")
     if "tasks" in restored:
         tprint(f"  Tasks: {restored['tasks']} restored")
     if "lead_messages" in restored:
@@ -749,8 +749,14 @@ async def async_repl_loop(lead, message_bus, task_manager, teammate_manager, log
                         continue
 
                     if sub_cmd == "restore":
+                        session_subject = ""
+                        for s in sessions:
+                            if s.get("session_name") == session_name:
+                                session_subject = s.get("subject", "")
+                                break
+                        display_name = session_subject or session_name
                         log.info(f"Restoring session: {session_name}")
-                        tprint(f"Restoring session: {session_name}")
+                        tprint(f"Restoring session: {display_name}")
 
                         await auto_saver.stop()
 
@@ -786,7 +792,7 @@ async def async_repl_loop(lead, message_bus, task_manager, teammate_manager, log
                                 session_manager._file_mtimes.clear()
 
                                 restored = summary.get("restored", {})
-                                tprint(f"Session restored: {session_name}")
+                                tprint(f"Session restored: {display_name}")
                                 if "tasks" in restored:
                                     tprint(f"  Tasks: {restored['tasks']} restored")
                                 if "lead_messages" in restored:
