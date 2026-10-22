@@ -51,7 +51,7 @@ class TeammateManager:
         """Save team configuration"""
         self.config_path.write_text(json.dumps(self._team_config, indent=2, ensure_ascii=False))
 
-    def spawn(self, name: str, role: str, initial_message: dict) -> str:
+    def spawn(self, name: str, role: str, initial_message: dict, model: str | None = None) -> str:
         """
         Spawn a new teammate.
 
@@ -59,6 +59,8 @@ class TeammateManager:
             name: Teammate name
             role: Teammate role
             initial_message: Initial message for LLM
+            model: Optional model id (resolved by the model router). When
+                None, the teammate follows the global model.
 
         Returns:
             Status message
@@ -91,6 +93,7 @@ class TeammateManager:
                 "name": name,
                 "role": role,
                 "status": "working",
+                "model": model or "",
             }
             self._team_config["members"].append(member)
 
@@ -110,6 +113,7 @@ class TeammateManager:
             task_manager=self.task_manager,
             pty_file=pty_file,
             teammate_manager=self,
+            model_id=model or "",
         )
 
         # Store teammate instance for later access
@@ -125,9 +129,10 @@ class TeammateManager:
         self.threads[name] = thread
         thread.start()
 
-        return f"Spawned '{name}' (role: {role})" + (f" in pane" if pty_file else "")
+        model_info = f", model: {model}" if model else ""
+        return f"Spawned '{name}' (role: {role}{model_info})" + (" in pane" if pty_file else "")
 
-    def spawn_with_history(self, name: str, role: str, status: str, restored_messages: list) -> str:
+    def spawn_with_history(self, name: str, role: str, status: str, restored_messages: list, model: str | None = None) -> str:
         """Spawn a teammate with pre-restored message history (for session recovery).
 
         Args:
@@ -135,6 +140,7 @@ class TeammateManager:
             role: Teammate role
             status: Teammate status (e.g. "working", "idle")
             restored_messages: Full message history to restore
+            model: Optional model id restored from the team config
 
         Returns:
             Status message
@@ -170,6 +176,7 @@ class TeammateManager:
             "name": name,
             "role": role,
             "status": status,
+            "model": model or "",
         }
         self._team_config["members"].append(member)
 
@@ -188,6 +195,7 @@ class TeammateManager:
             task_manager=self.task_manager,
             pty_file=pty_file,
             teammate_manager=self,
+            model_id=model or "",
         )
 
         self._teammates[name] = teammate
@@ -201,7 +209,8 @@ class TeammateManager:
         self.threads[name] = thread
         thread.start()
 
-        return f"Spawned '{name}' (role: {role}) [recovered]" + (f" in pane" if pty_file else "")
+        model_info = f", model: {model}" if model else ""
+        return f"Spawned '{name}' (role: {role}{model_info}) [recovered]" + (" in pane" if pty_file else "")
 
     def shutdown_all(self, timeout: float = 5.0) -> List[str]:
         """Shutdown all active teammates and close their tmux panes.
@@ -362,6 +371,46 @@ class TeammateManager:
             List of names
         """
         return [m["name"] for m in self._team_config.get("members", [])]
+
+    def pinned_models(self) -> List[tuple]:
+        """
+        List teammates pinned to a routed model (via the model router).
+
+        Returns:
+            List of (name, model_id) tuples for members with a pinned model
+        """
+        return [
+            (m["name"], m["model"])
+            for m in self._team_config.get("members", [])
+            if m.get("model")
+        ]
+
+    def set_member_model(self, name: str, model: str | None) -> str:
+        """Change a teammate's model at runtime (REPL ``/route agent``).
+
+        Updates both the live agent (takes effect on its next LLM call) and
+        the persisted member record (restored with sessions).
+
+        Args:
+            name: Teammate name
+            model: New model id, or None to unpin (follow routing/global)
+
+        Returns:
+            Status message
+        """
+        member = self._find_member(name)
+        if not member:
+            return f"Error: '{name}' not found"
+        member["model"] = model or ""
+        self._save_config()
+        teammate = self._teammates.get(name)
+        if teammate:
+            teammate.model_id = model or ""
+        return (
+            f"Teammate '{name}' model set to '{model}'."
+            if model
+            else f"Teammate '{name}' unpinned; follows the routed/global model."
+        )
 
     def get_teammate(self, name: str) -> Optional[TeammateAgent]:
         """

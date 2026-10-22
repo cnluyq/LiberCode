@@ -3,9 +3,12 @@ Lead agent tools for LiberCode.
 
 Provides tool definitions and handlers for the Lead agent.
 """
+import logging
 from typing import Dict, Callable
 from libercode.taskboard.manager import TaskManager
 from libercode.messaging.bus import MessageBus
+
+logger = logging.getLogger("libercode.lead_tools")
 
 
 def get_lead_tools() -> list:
@@ -72,6 +75,7 @@ def get_lead_tools() -> list:
                     "description": {"type": "string"},
                     "required_role": {"type": "string", "description": "Required teammate role (e.g. 'frontend', 'backend')"},
                     "assigned_to": {"type": "string", "description": "Specific teammate name assigned to this task"},
+                    "model": {"type": "string", "description": "Model id for this task. Omit this unless you are absolutely certain the exact model id exists on the connected provider; when omitted the system auto-selects a suitable model."},
                 },
                 "required": ["subject", "required_role", "assigned_to"],
             },
@@ -118,6 +122,7 @@ def get_lead_tools() -> list:
                     "name": {"type": "string"},
                     "role": {"type": "string"},
                     "prompt": {"type": "string"},
+                    "model": {"type": "string", "description": "Model id for this teammate. Omit this unless you are absolutely certain the exact model id exists on the connected provider; when omitted the system auto-selects a suitable model."},
                 },
                 "required": ["name", "role", "prompt"],
             },
@@ -206,6 +211,7 @@ def create_lead_tool_handlers(
     task_manager: TaskManager,
     message_bus: MessageBus,
     teammate_manager, # TeammateManager type
+    config=None, # Config type
 ) -> Dict[str, Callable]:
     """
     Create Lead agent tool handlers.
@@ -214,6 +220,7 @@ def create_lead_tool_handlers(
         task_manager: TaskManager instance
         message_bus: MessageBus instance
         teammate_manager: TeammateManager instance
+        config: Optional Config instance (used for model routing)
 
     Returns:
         Dict mapping tool names to handler functions
@@ -228,6 +235,43 @@ def create_lead_tool_handlers(
     import json
     import uuid
 
+    async def _route_model(role: str, text: str, explicit=None):
+        """Resolve and validate the model to pin for a task/teammate.
+
+        The LLM-provided ``explicit`` value (and any routed model) is
+        treated as untrusted input: every candidate is validated against
+        the connected provider first (probe results are cached). Invalid
+        candidates are dropped, falling back to the next rule.
+
+        Returns:
+            Valid model id to pin, or None when nothing matched/validated
+            (the agent/task then follows the global model)
+        """
+        if config is None:
+            return explicit
+        if explicit:
+            if await config.validate_model(explicit):
+                return explicit
+            logger.warning(
+                f"Explicit model '{explicit}' unavailable on provider, ignoring"
+            )
+        model, matched = config.resolve_model(role=role, text=text)
+        if matched:
+            if await config.validate_model(model):
+                return model
+            logger.warning(
+                f"Routed model '{model}' unavailable on provider, not pinning"
+            )
+            return None
+        classified = await config.classify_model(role, text)
+        if classified:
+            if await config.validate_model(classified):
+                return classified
+            logger.warning(
+                f"Classifier model '{classified}' unavailable on provider, ignoring"
+            )
+        return None
+
     def handle_bash(**kwargs):
         return run_bash(kwargs["command"])
 
@@ -240,9 +284,27 @@ def create_lead_tool_handlers(
     def handle_edit_file(**kwargs):
         return edit_file(kwargs["path"], kwargs["old_text"], kwargs["new_text"])
 
-    def handle_task_create(**kwargs):
-        task = task_manager.create(kwargs["subject"], kwargs.get("description", ""), kwargs["required_role"], kwargs["assigned_to"])
-        return json.dumps(task.to_dict(), indent=2, ensure_ascii=False)
+    async def handle_task_create(**kwargs):
+        role = kwargs.get("required_role", "")
+        subject = kwargs.get("subject", "")
+        description = kwargs.get("description", "")
+        explicit = kwargs.get("model")
+        model = await _route_model(role, f"{subject}\n{description}", explicit)
+        task = task_manager.create(
+            kwargs["subject"],
+            kwargs.get("description", ""),
+            kwargs["required_role"],
+            kwargs["assigned_to"],
+            model=model or "",
+        )
+        result = json.dumps(task.to_dict(), indent=2, ensure_ascii=False)
+        if explicit and explicit != model:
+            result += (
+                f"\n\nWARNING: requested model '{explicit}' is not available on "
+                "the connected provider and was ignored. A model was selected "
+                "automatically instead."
+            )
+        return result
 
     def handle_task_update(**kwargs):
         from libercode.taskboard.models import TaskStatus
@@ -268,11 +330,22 @@ def create_lead_tool_handlers(
         task = task_manager.get(kwargs["task_id"])
         return json.dumps(task.to_dict(), indent=2, ensure_ascii=False)
 
-    def handle_spawn_teammate(**kwargs):
-        prompt_message={"role": "user", "content": kwargs["prompt"]}
-        return teammate_manager.spawn(
-            kwargs["name"], kwargs["role"], prompt_message
+    async def handle_spawn_teammate(**kwargs):
+        role = kwargs["role"]
+        prompt = kwargs["prompt"]
+        explicit = kwargs.get("model")
+        model = await _route_model(role, prompt, explicit)
+        prompt_message={"role": "user", "content": prompt}
+        result = teammate_manager.spawn(
+            kwargs["name"], kwargs["role"], prompt_message, model=model
         )
+        if explicit and explicit != model:
+            result += (
+                f" WARNING: requested model '{explicit}' is not available on "
+                "the connected provider and was ignored. A model was selected "
+                "automatically instead."
+            )
+        return result
 
     def handle_list_teammates(**kwargs):
         return teammate_manager.list_all()

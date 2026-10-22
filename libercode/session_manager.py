@@ -262,6 +262,33 @@ class SessionManager:
             return False
         return self._copy_file_if_changed(src, session_path / "stats.json")
 
+    def _save_routes(self, session_path: Path) -> bool:
+        """Save runtime routing overrides (/route command) to file.
+
+        Removes the file when overrides are cleared (e.g. ``/route reset``)
+        so a stale snapshot is not re-applied on the next restore.
+        """
+        if not self.lead:
+            return False
+        try:
+            routes = self.lead.config.route_overrides()
+        except Exception:
+            return False
+        routes_path = session_path / "routes.json"
+        if not routes or not any(routes.values()):
+            if routes_path.exists():
+                routes_path.unlink()
+                self._file_mtimes.pop(str(routes_path), None)
+                return True
+            return False
+
+        data = json.dumps(routes, indent=2, ensure_ascii=False)
+        if routes_path.exists() and routes_path.read_text() == data:
+            return False
+        routes_path.write_text(data)
+        self._file_mtimes[str(routes_path)] = time.time()
+        return True
+
     def _do_save_unlocked(self) -> tuple[bool, float]:
         """Perform a save operation. Returns (changed, duration).
 
@@ -282,6 +309,7 @@ class SessionManager:
         changed = self._save_token_records(session_path) or changed
         changed = self._save_tool_results(session_path) or changed
         changed = self._save_compact_stats(session_path) or changed
+        changed = self._save_routes(session_path) or changed
 
         if changed:
             self._current_session.save_count += 1
@@ -357,7 +385,7 @@ Summary (max 50 characters):"""
         try:
             self._logger.debug(f"generate_subject: calling LLM... with prompt:\n{summary_prompt}")
             response = await async_client.messages.create(
-                model=self.lead.config.model_id,
+                model=self.lead.config.resolve_lead_model(),
                 max_tokens=8000,
                 messages=[{"role": "user", "content": summary_prompt}],
             )
@@ -747,6 +775,17 @@ class SessionRecoveryManager:
             _logger.info(f"Restored compaction stats from {stats_src}")
             summary["restored"]["compaction_stats"] = True
 
+        # Step 7: Restore routing overrides (must happen before teammates spawn)
+        routes_src = session_path / "routes.json"
+        if routes_src.exists() and lead:
+            try:
+                routes_data = json.loads(routes_src.read_text())
+                lead.config.apply_route_overrides(routes_data)
+                summary["restored"]["routes"] = True
+                _logger.info(f"Restored routing overrides: {routes_data}")
+            except Exception as e:
+                _logger.warning(f"Failed to restore routing overrides: {e}")
+
         # Step 8: Spawn teammates with restored history
         if teammate_manager:
             team_config_src = session_path / "team_config.json"
@@ -764,6 +803,7 @@ class SessionRecoveryManager:
                     name = member["name"]
                     role = member["role"]
                     status = member.get("status", "working")
+                    model = member.get("model") or None
 
                     restored_messages = []
                     if teammates_path.exists():
@@ -777,9 +817,9 @@ class SessionRecoveryManager:
                             except Exception as e:
                                 _logger.warning(f"Failed to load messages for {name}: {e}")
 
-                    result = teammate_manager.spawn_with_history(name, role, status, restored_messages)
-                    spawned.append({"name": name, "role": role, "status": status, "messages": len(restored_messages)})
-                    _logger.info(f"Spawned teammate '{name}' (role: {role}, status: {status}) with {len(restored_messages)} messages")
+                    teammate_manager.spawn_with_history(name, role, status, restored_messages, model=model)
+                    spawned.append({"name": name, "role": role, "status": status, "model": model or "", "messages": len(restored_messages)})
+                    _logger.info(f"Spawned teammate '{name}' (role: {role}, status: {status}, model: {model or ''}) with {len(restored_messages)} messages")
 
                     _time.sleep(0.5)
 

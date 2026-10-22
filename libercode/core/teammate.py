@@ -58,6 +58,16 @@ class TeammateAgent:
     real_time_model_id: str = ""
     _last_input_tokens: int = 0
     _last_model: str = ""
+    model_id: str = ""
+
+    def _active_model(self) -> str:
+        """Model for this teammate.
+
+        A pinned ``model_id`` (resolved by the model router at spawn time or
+        from a claimed task) takes priority; otherwise the teammate follows
+        the global model (``MODEL_ID`` / ``/model``).
+        """
+        return self.model_id or self.config.model_id
 
     def _load_agents_md(self) -> Optional[str]:
         """Load AGENTS.md or CLAUDE.md from project root."""
@@ -215,7 +225,7 @@ class TeammateAgent:
                     start_time = time.time()
                     try:
                         response = self.client.messages.create(
-                            model=self.config.model_id,
+                            model=self._active_model(),
                             system=sys_prompt,
                             messages=self.messages,
                             tools=self._get_tools(),
@@ -243,7 +253,7 @@ class TeammateAgent:
                         error_str = str(e).lower()
                         if ("prompt_too_long" in error_str or "too many tokens" in error_str) and reactive_retries < MAX_REACTIVE_RETRIES:
                             self._logger.warning("Prompt too long, running reactive compaction")
-                            reactive_compact(self.messages, self.client, self.config.model_id)
+                            reactive_compact(self.messages, self.client, self._active_model())
                             CompactionTracker.record_compact(self.name, "reactive")
                             reactive_retries += 1
                             continue
@@ -289,7 +299,7 @@ class TeammateAgent:
                         self._logger.info(
                             f"Context ratio {input_tokens}/{context_window} exceeds {self.config.compact_history_ratio_threshold}, compacting history"
                         )
-                        compact_history(self.messages, self.client, self.config.model_id, self.config.compact_history_keep_latest_message_num, self.config.compact_history_keep_original_message_num)
+                        compact_history(self.messages, self.client, self._active_model(), self.config.compact_history_keep_latest_message_num, self.config.compact_history_keep_original_message_num)
                         CompactionTracker.record_compact(self.name, "history")
 
                     if hasattr(response, "model_dump"):
@@ -400,6 +410,23 @@ class TeammateAgent:
                     try:
                         claimed = self.task_manager.claim_task(task_id, self.name)
                         if claimed:
+                            claimed_model = getattr(claimed, "model", "") or ""
+                            if claimed_model and claimed_model != self.model_id:
+                                if self.config.verify_model_sync(claimed_model):
+                                    self._logger.info(
+                                        f"Teammate {self.name} switching model to {claimed_model} for task #{claimed.id}"
+                                    )
+                                    tprint(
+                                        f"Teammate {self.name} switching model to {claimed_model} for task #{claimed.id}"
+                                    )
+                                    self.model_id = claimed_model
+                                else:
+                                    self._logger.warning(
+                                        f"Teammate {self.name} ignoring unavailable task model '{claimed_model}' for task #{claimed.id}"
+                                    )
+                                    tprint(
+                                        f"Teammate {self.name} ignoring unavailable task model '{claimed_model}' for task #{claimed.id}"
+                                    )
                             task_prompt = (
                                 f"<auto-claimed>Task #{claimed.id}: \n"
                                 f"Subject: {claimed.subject}\n"

@@ -48,17 +48,82 @@ LiberCode reads project-level settings from `libercode.json` in the working dire
   "dangerous_command_policy": "deny", // "deny" (block) | "allow" (pass) | "confirm" (ask user)
   "dangerous_command_patterns_override": null, // Array to replace defaults entirely; [] disables all checking
   "dangerous_command_patterns_extra": [], // Array of additional patterns to append to defaults
-  "dangerous_command_timeout": 1800 // Teammate confirm wait timeout in seconds (default: 1800 = 30min)
+  "dangerous_command_timeout": 1800, // Teammate confirm wait timeout in seconds (default: 1800 = 30min)
+
+  // Model routing (see "Model Routing" section below)
+  "model_router": {} // {} disables routing (default); see below for the routing schema
 }
 ```
 
 If `libercode.json` does not exist, built-in defaults are used for every setting.
 
+A complete template with every option (including `model_router`) is shipped at `libercode.json.example` — copy it to `libercode.json` and edit. Plain JSON only: comments are not allowed.
+
+### Model Routing (multi-model auto-selection)
+
+`MODEL_ID` (or `/model`) sets the **global model**. When `model_router.enabled` is true, LiberCode can additionally assign different models to the lead and to individual teammates/tasks at runtime, selected by task characteristics. All routed models must be available on the currently connected provider (same `LLM_API_KEY` / `LLM_BASE_URL` — only the `model` argument of the API call differs).
+
+Resolution order for a teammate/task (implemented in `libercode/model_router.py` `ModelRouter.resolve`):
+
+1. Explicit `model` (lead's `spawn_teammate` / `task_create` tool argument)
+2. Runtime role override (`/route role`)
+3. `by_keyword` — first keyword match on the task subject + description / spawn prompt
+4. `by_role` — match on the teammate role
+5. Runtime default override (`/route default`)
+6. `default`
+7. Global model (`MODEL_ID` / `/model`)
+
+When no rule matches, the model is **not pinned**: the agent keeps following global `/model` switches. When a rule matches (or the optional classifier hits), the model is pinned at spawn/task-creation time. The lead uses the `lead` rule (default: global model). A teammate that claims a task with a pinned `model` field switches to it. Teammate models are persisted in `.team/config.json` and restored with sessions.
+
+**Validation against the provider model list**: every candidate model — LLM-provided explicit values, rule results, classifier results, and task `model` fields at claim time — is validated before use (`Config.validate_model` / `Config.verify_model_sync`). The authoritative model id set is cached from the provider model-list endpoint at startup (`refresh_pricing`), after `/connect`, and with `/model list` (`Config.update_fetched_model_info` → `_available_model_ids`). Validation order: (1) models declared in `libercode.json` `model_params` (escape hatch for aliases not exposed by the list endpoint), (2) probe cache, (3) provider list (deterministic, zero-cost; unknown → fall back to a 1-token probe), (4) provider-reported limits/pricing. Invalid candidates are dropped with a warning and fall back to the next rule (ultimately the global model); `/model routes` flags configured-but-unavailable models as `[UNAVAILABLE]`, and `resolve_lead_model` deterministically falls back to the global model when the configured `lead` model is not on the provider list.
+
+**Example**:
+
+```jsonc
+{
+  "model_router": {
+    "enabled": true,
+    "lead": "claude-opus-4",            // lead always uses this model
+    "default": "claude-sonnet-4",       // fallback for routed teammates
+    "by_role": {                        // role → model
+      "frontend": "claude-sonnet-4",
+      "backend": "claude-opus-4"
+    },
+    "by_keyword": [                     // task-text → model (first match wins)
+      { "keywords": ["test", "unit test", "refactor"], "model": "deepseek-flash" }
+    ],
+    "classifier": {                     // optional LLM classifier for tasks matching no rule
+      "model": "deepseek-flash",
+      "categories": [
+        { "name": "trivial", "model": "deepseek-flash", "description": "simple mechanical edits, typos, formatting, small config changes" },
+        { "name": "complex", "model": "claude-opus-4", "description": "complex architecture, debugging, security-sensitive or large-scale work" }
+      ]
+    }
+  }
+}
+```
+
+Inspect routing with the `/model routes` REPL command; `/model` shows routing status alongside the global model, lists teammates pinned by the router, and prints a note after switching when routed agents are unaffected by the new global model. Context compaction uses each agent's active model (not the global one).
+
+**Runtime overrides (`/route` command)**: routing rules can be changed at runtime without editing `libercode.json`:
+
+```
+/route                                  # show current overrides + pinned agents
+/route agent <name> <model|reset>       # change one teammate's model (persisted via team config)
+/route role <role> <model>              # override a by_role mapping
+/route default <model>                  # override the default rule
+/route lead <model>                     # override the lead rule
+/route reset                            # clear all rule overrides
+```
+
+Rule overrides (role/default/lead) are evaluated before the configured `by_keyword`/`by_role`/`default` rules and are persisted with sessions (`routes.json`, restored by `SessionRecoveryManager.restore_session`). They only take effect when routing is enabled — `/route` warns when it is not. `agent` changes update the live teammate immediately (next LLM call) and survive session restore via the team config member record. All override models are validated against the provider model list.
+
 ### Model Configuration (3-tier priority)
 
-Model `context_window` and `output_max` are resolved per-field in this order:
+`model_params` is a **parameter library for known models**, not a list of available models: entries never cause a model to be used — they only override `context_window` / `output_max` / `pricing` once a model is selected (via `MODEL_ID`, `/model`, or `model_router`). A model listed here also counts as user-declared-available during provider-list validation. The legacy key `models` still loads (with a deprecation warning) but is superseded by `model_params`.
 
-1. **`libercode.json`** `models` entry — user-level overrides (highest priority)
+Model `context_window` and `output_max` are resolved per-field in this order:
+1. **`libercode.json`** `model_params` entry — user-level overrides (highest priority)
 2. **`models.json`** — system-level defaults shipped with the package (`libercode/models.json`)
 3. **Auto-fetched** — provider model list (`context_window` / `max_output_tokens`) then models.dev catalog (`limit.context` / `limit.output`); refreshed at startup, after `/connect`, and with `/model list`
 4. **Hardcoded defaults** — `default_context_window` (256,000) and `default_output_max` (8,192)
@@ -69,7 +134,7 @@ The status pane shows `N/A (context window unknown)` when a model's limits are u
 
 ```jsonc
 {
-  "models": {
+  "model_params": {
     "my-custom-model": { "context_window": 128000, "output_max": 4096 }
   }
 }
@@ -81,16 +146,16 @@ For `my-custom-model`: uses 128000 / 4096 from `libercode.json`. For any model n
 
 Token cost is computed locally from a per-model `pricing` dict (USD per 1M tokens); the LLM API response contains only token counts, never cost data. Resolution order:
 
-1. **`libercode.json`** `models` entry `pricing` — user-level overrides (highest priority)
+1. **`libercode.json`** `model_params` entry `pricing` — user-level overrides (highest priority)
 2. **`models.json`** — system-level defaults shipped with the package
 
 **Example** — configure pricing for a model in `libercode.json`:
 
 ```jsonc
 {
-  "models": {
-    "deepseek-flash": {
-      "pricing": { "input": 0.27, "output": 1.10, "cache_read": 0.07 }
+  "model_params": {
+    "my-custom-model": {
+      "pricing": { "input": 0.27, "output": 1.10, "cache_read": 0.07, "cache_creation": 0.34 }
     }
   }
 }
@@ -188,6 +253,7 @@ libercode/
   worktree/                 — Git worktree isolation (DEFINED BUT NOT WIRED)
   ui/                       — Tmux panes, status display, input, output
   config.py                 — libercode.json loading, env loading, sync+async client init, runtime connect()/set_model()/persist_env()
+  model_router.py           — Multi-model routing rules (by_role/by_keyword/default + optional LLM classifier)
   models.json               — System-level model defaults (context_window / output_max per model)
   cli.py                    — REPL loop, session management, agent orchestration
   session_manager.py        — Session save/restore/auto-save
@@ -216,11 +282,12 @@ These runtime directories (`.team/`, `.tasks/`) are cleaned up on exit unless se
 | `/team` | List teammates |
 | `/tasks` | Show task board |
 | `/inbox` | Check lead's messages |
+| `/route` | Show/change runtime routing overrides: `agent <name> <model\|reset>`, `role <role> <model>`, `default <model>`, `lead <model>`, `reset` (persisted with sessions) |
 | `/tokens` | Token usage stats |
 | `/sessions [list\|restore\|delete\|resubject]` | Session management |
 | `/clear [name\|all]` | Clear message history |
 | `/connect [api_key] [base_url]` | Switch LLM provider at runtime; interactive if no args. Validated with a 1-token probe call (reverted on failure); updates lead + all teammates and persists to `.env` |
-| `/model [model_id\|list]` | Show current model, switch model (validated with a 1-token probe call, reverted on failure), or list available models on the connected provider (`/model list`); persists to `.env` |
+| `/model [model_id\|list\|routes]` | Show current model (with routing status), switch model (validated against the provider model list / a 1-token probe, deterministic when the list is cached), list available models (`/model list`), or show routing rules (`/model routes`); persists to `.env` |
 | `q` / `exit` | Quit |
 | `!<cmd>` | Run shell command directly from REPL |
 

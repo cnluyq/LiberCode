@@ -26,6 +26,7 @@ from dotenv import load_dotenv
 from anthropic import Anthropic, AsyncAnthropic
 
 from libercode.exceptions import ConfigurationError
+from libercode.model_router import ModelRouter
 
 logger = logging.getLogger("libercode.config")
 
@@ -115,7 +116,8 @@ _DEFAULTS = {
     "compact_history_ratio_threshold": 0.75,
     "compact_history_keep_latest_message_num": 10,
     "compact_history_keep_original_message_num": 10,
-    "models": {},
+    "model_params": {},
+    "model_router": {},
     "default_context_window": _DEFAULT_CONTEXT_WINDOW,
     "default_output_max": _DEFAULT_OUTPUT_MAX,
 }
@@ -239,10 +241,13 @@ class Config:
     compact_history_keep_latest_message_num: int
     compact_history_keep_original_message_num: int
 
-    # Model configurations
-    models: dict
+    # Model parameters (libercode.json "model_params": context/output/pricing overrides + availability declaration)
+    model_params: dict
     default_context_window: int
     default_output_max: int
+
+    # Model routing (libercode.json "model_router" section, see model_router.py)
+    model_router: dict
 
     # Runtime-switchable LLM clients (managed via connect()/set_model())
     sync_client: Any = field(default=None, init=False, repr=False)
@@ -251,13 +256,15 @@ class Config:
     _pricing_sources: dict = field(default_factory=dict, init=False, repr=False)
     _fetched_limits: dict = field(default_factory=dict, init=False, repr=False)
     _model_limit_sources: dict = field(default_factory=dict, init=False, repr=False)
+    _available_model_ids: Any = field(default=None, init=False, repr=False)
+    _verified_models: dict = field(default_factory=dict, init=False, repr=False)
 
     def get_model_config(self, model_id: str) -> tuple[int, int]:
         """Get context_window and output_max for a model.
 
         Resolution order (per-field):
 
-        1. ``libercode.json`` ``models`` entry for *model_id*
+        1. ``libercode.json`` ``model_params`` entry for *model_id*
         2. System ``models.json`` entry for *model_id*
         3. Limits auto-fetched from the provider / models.dev
         4. ``default_context_window`` / ``default_output_max`` (also resolved
@@ -269,7 +276,7 @@ class Config:
         Returns:
             Tuple of (context_window, output_max)
         """
-        user_cfg = self.models.get(model_id, {})
+        user_cfg = self.model_params.get(model_id, {})
         system_cfg = self._system_models.get(model_id, {})
         fetched = self._fetched_limits.get(model_id, {})
         context = user_cfg.get(
@@ -295,7 +302,7 @@ class Config:
             One of "libercode.json", "models.json", "provider",
             "models.dev", or None when falling back to hardcoded defaults
         """
-        user_cfg = self.models.get(model_id, {})
+        user_cfg = self.model_params.get(model_id, {})
         if "context_window" in user_cfg or "output_max" in user_cfg:
             return "libercode.json"
         system_cfg = self._system_models.get(model_id, {})
@@ -310,7 +317,7 @@ class Config:
 
         Resolution order:
 
-        1. ``libercode.json`` ``models`` entry ``pricing`` for *model_id*
+        1. ``libercode.json`` ``model_params`` entry ``pricing`` for *model_id*
         2. System ``models.json`` entry ``pricing`` for *model_id*
         3. Pricing fetched automatically — provider model list endpoint
            first, then the models.dev community catalog (see
@@ -323,7 +330,7 @@ class Config:
             Pricing dict with optional keys ``input``, ``output``,
             ``cache_read``, ``cache_creation``, or None if not configured
         """
-        user_cfg = self.models.get(model_id, {})
+        user_cfg = self.model_params.get(model_id, {})
         pricing = user_cfg.get("pricing")
         if pricing is None:
             pricing = self._system_models.get(model_id, {}).get("pricing")
@@ -502,11 +509,33 @@ class Config:
         self._system_models = _load_system_models()
         logger.debug("Loaded system_models: %d entries", len(self._system_models))
 
-        self.models = file_config.get("models", _DEFAULTS["models"])
-        if not isinstance(self.models, dict):
-            raise ConfigurationError(
-                f"libercode.json: 'models' must be an object, got {type(self.models).__name__}"
+        self.model_params = file_config.get(
+            "model_params", _DEFAULTS["model_params"]
+        )
+        legacy_models = file_config.get("models")
+        if legacy_models is not None:
+            logger.warning(
+                "libercode.json: 'models' is deprecated, rename it to "
+                "'model_params' (parameters for known models, not a model list)"
             )
+            if self.model_params == _DEFAULTS["model_params"]:
+                self.model_params = legacy_models
+        if not isinstance(self.model_params, dict):
+            raise ConfigurationError(
+                f"libercode.json: 'model_params' must be an object, got {type(self.model_params).__name__}"
+            )
+        self.model_router = file_config.get("model_router", _DEFAULTS["model_router"])
+        if self.model_router is None:
+            self.model_router = {}
+        if not isinstance(self.model_router, dict):
+            raise ConfigurationError(
+                f"libercode.json: 'model_router' must be an object, got {type(self.model_router).__name__}"
+            )
+        self.router = ModelRouter(
+            self.model_router,
+            lambda: self.model_id,
+            is_listed=self._router_model_listed,
+        )
         self.default_context_window = int(_DEFAULTS["default_context_window"])
         self.default_output_max = int(_DEFAULTS["default_output_max"])
 
@@ -523,6 +552,10 @@ class Config:
         self._pricing_sources = {}
         self._fetched_limits = {}
         self._model_limit_sources = {}
+        # Verified model ids (probe results cached; reset on connect())
+        self._verified_models: dict = {}
+        # Authoritative provider model id set (None = not fetched yet)
+        self._available_model_ids = None
 
     def connect(self, api_key: str, base_url: str | None = None) -> None:
         """Switch the LLM provider at runtime.
@@ -549,6 +582,9 @@ class Config:
         self._pricing_sources = {}
         self._fetched_limits = {}
         self._model_limit_sources = {}
+        # Provider switched: previous probe results are no longer valid
+        self._verified_models = {}
+        self._available_model_ids = None
         logger.info(
             f"LLM provider switched: base_url={self.base_url}, model_id={self.model_id}"
         )
@@ -570,6 +606,226 @@ class Config:
         self.model_id = model_id
         logger.info(f"Model switched to: {self.model_id}")
 
+    def resolve_lead_model(self) -> str:
+        """Resolve the model for the lead agent.
+
+        Returns the ``model_router.lead`` rule when routing is enabled,
+        otherwise the global model id. When the provider model list has
+        been fetched and the configured lead model is not on it (and not
+        declared in libercode.json ``model_params``), falls back to the global
+        model deterministically.
+        """
+        configured = self.router.lead_rule()
+        if configured:
+            if self._available_model_ids and not self._router_model_listed(configured):
+                logger.debug(
+                    f"Configured lead model '{configured}' is not in the provider "
+                    f"model list; using global model '{self.model_id}'"
+                )
+                return self.model_id
+            return configured
+        return self.model_id
+
+    def _router_model_listed(self, model_id: str) -> bool:
+        """Whether a router-configured model is known-available (for display).
+
+        Returns True when the provider list is not available yet (unknown
+        status), so nothing is flagged prematurely.
+        """
+        available = self._available_model_ids
+        if not available:
+            return True
+        if model_id in self.model_params:
+            return True
+        return model_id in available
+
+    def _log_router_diagnostics(self) -> None:
+        """Log a warning for every router-configured model the provider lacks.
+
+        Only runs once the authoritative provider model list has been
+        fetched (startup refresh_pricing, /connect, /model list).
+        """
+        if not self._available_model_ids:
+            return
+        for model in self.router.configured_models():
+            if not self._router_model_listed(model):
+                logger.warning(
+                    f"model_router references model '{model}' which is not "
+                    "available on the connected provider"
+                )
+
+    def resolve_model(self, role: str = "", text: str = "", explicit: str | None = None) -> tuple:
+        """Resolve a model for a teammate/task via deterministic routing rules.
+
+        Args:
+            role: Teammate role (matched against ``model_router.by_role``)
+            text: Task description / spawn prompt (matched against
+                ``model_router.by_keyword``)
+            explicit: Explicit model id override (highest priority)
+
+        Returns:
+            Tuple of ``(model_id, matched)`` — see
+            :meth:`libercode.model_router.ModelRouter.resolve`
+        """
+        return self.router.resolve(role, text, explicit)
+
+    def set_route_override(self, kind: str, key: str | None = None, model: str | None = None) -> None:
+        """Set a runtime routing override (REPL ``/route`` command).
+
+        Args:
+            kind: "lead", "default", or "role"
+            key: Role name (kind="role" only)
+            model: Model id, or None to clear the override
+        """
+        self.router.set_override(kind, key, model)
+
+    def reset_route_overrides(self) -> None:
+        """Clear all runtime routing overrides (back to libercode.json)."""
+        self.router.reset_overrides()
+
+    def route_overrides(self) -> dict:
+        """Serializable snapshot of runtime routing overrides."""
+        return self.router.get_overrides()
+
+    def apply_route_overrides(self, overrides: dict) -> None:
+        """Restore runtime routing overrides (session recovery)."""
+        self.router.apply_overrides(overrides)
+
+    async def classify_model(self, role: str, text: str, timeout: float = 20.0) -> str | None:
+        """Classify a task via the optional LLM classifier and return a model id.
+
+        Uses the ``model_router.classifier`` configuration. Returns None when
+        no classifier is configured or the classification call fails.
+
+        Args:
+            role: Teammate role of the task
+            text: Task description / prompt text
+            timeout: Per-request timeout in seconds
+
+        Returns:
+            Model id for the classified category, or None
+        """
+        if not self.router.enabled:
+            return None
+        prompt_info = self.router.classify_prompt(role, text)
+        if not prompt_info:
+            return None
+        classifier_model, prompt = prompt_info
+        try:
+            response = await self.async_client.messages.create(
+                model=classifier_model,
+                max_tokens=16,
+                messages=[{"role": "user", "content": prompt}],
+                timeout=timeout,
+            )
+        except Exception as e:
+            logger.warning(f"Model classification call failed: {e}")
+            return None
+        raw = " ".join(
+            block.text
+            for block in response.content
+            if getattr(block, "type", "") == "text"
+        ).strip()
+        category = raw.splitlines()[0].strip() if raw else ""
+        category = category.strip(".,;:-_*`\"'()[]{} ")
+        resolved = self.router.category_model(category)
+        if resolved:
+            logger.info(f"Model classifier picked category '{category}' -> {resolved}")
+        else:
+            logger.debug(f"Model classifier reply '{raw}' matched no category")
+        return resolved
+
+    def _cached_verified(self, model_id: str) -> bool | None:
+        """Check the verified-models cache; None means 'not determined yet'.
+
+        Priority:
+
+        1. User-declared models in libercode.json ``model_params`` (escape hatch
+           for provider aliases not exposed by the model list endpoint)
+        2. Probe cache (successes and failures)
+        3. The authoritative provider model list (``_available_model_ids``)
+        4. Provider-fetched limits/pricing (only entries actually reported
+           by the provider, never models.dev cross-provider data)
+        """
+        if model_id in self.model_params:
+            return True
+        if model_id in self._verified_models:
+            return self._verified_models[model_id]
+        available = self._available_model_ids
+        if available:
+            result = model_id in available
+            self._verified_models[model_id] = result
+            return result
+        if (
+            model_id in self._fetched_limits
+            and self._model_limit_sources.get(model_id) == "provider"
+        ):
+            self._verified_models[model_id] = True
+            return True
+        if (
+            model_id in self._fetched_pricing
+            and self._pricing_sources.get(model_id) == "provider"
+        ):
+            self._verified_models[model_id] = True
+            return True
+        return None
+
+    async def validate_model(self, model_id: str, timeout: float = 20.0) -> bool:
+        """Validate that a model id is usable on the connected provider.
+
+        Resolution order (see :meth:`_cached_verified`): user-declared
+        ``model_params``, probe cache, authoritative provider model list, then
+        provider-fetched limits/pricing; a 1-token probe call is the last
+        resort. Results are cached (including failures) and reset on
+        :meth:`connect`.
+
+        Args:
+            model_id: Model id to validate
+            timeout: Per-request timeout in seconds
+
+        Returns:
+            True if the model is usable, False otherwise
+        """
+        if not model_id:
+            return False
+        cached = self._cached_verified(model_id)
+        if cached is not None:
+            return cached
+        try:
+            await self.async_client.messages.create(
+                model=model_id,
+                max_tokens=1,
+                messages=[{"role": "user", "content": "ping"}],
+                timeout=timeout,
+            )
+            self._verified_models[model_id] = True
+            return True
+        except Exception as e:
+            self._verified_models[model_id] = False
+            logger.warning(f"Model '{model_id}' validation failed: {e}")
+            return False
+
+    def verify_model_sync(self, model_id: str, timeout: float = 15.0) -> bool:
+        """Synchronous variant of :meth:`validate_model` (for teammate threads)."""
+        if not model_id:
+            return False
+        cached = self._cached_verified(model_id)
+        if cached is not None:
+            return cached
+        try:
+            self.sync_client.messages.create(
+                model=model_id,
+                max_tokens=1,
+                messages=[{"role": "user", "content": "ping"}],
+                timeout=timeout,
+            )
+            self._verified_models[model_id] = True
+            return True
+        except Exception as e:
+            self._verified_models[model_id] = False
+            logger.warning(f"Model '{model_id}' verification failed: {e}")
+            return False
+
     def get_model_pricing_source(self, model_id: str) -> str | None:
         """Get the source of the pricing used for a model.
 
@@ -580,7 +836,7 @@ class Config:
             One of "libercode.json", "models.json", "provider",
             "models.dev", or None if no pricing is available
         """
-        user_cfg = self.models.get(model_id, {})
+        user_cfg = self.model_params.get(model_id, {})
         if isinstance(user_cfg.get("pricing"), dict):
             return "libercode.json"
         if isinstance(self._system_models.get(model_id, {}).get("pricing"), dict):
@@ -696,6 +952,7 @@ class Config:
                 if model_id not in self._fetched_limits:
                     self._fetched_limits[model_id] = limits
                     self._model_limit_sources[model_id] = "models.dev"
+        self._log_router_diagnostics()
         return bool(self._fetched_pricing)
 
     async def fetch_models_dev_info(self, timeout: float = 15.0) -> dict:
@@ -887,21 +1144,33 @@ class Config:
     def update_fetched_model_info(self, entries: list[dict]) -> None:
         """Rebuild the fetched pricing and limits caches from raw model entries.
 
+        Also caches the authoritative set of model ids exposed by the
+        provider (used for deterministic model validation), and clears the
+        probe cache since the list now supersedes it.
+
         Args:
             entries: List of raw model entry dicts from the provider
         """
         fetched_pricing: dict = {}
         fetched_limits: dict = {}
+        available_ids: set = set()
         for entry in entries:
             model_id = entry.get("id") if isinstance(entry, dict) else None
             if not model_id:
                 continue
+            available_ids.add(model_id)
             pricing = self._extract_pricing(entry)
             if pricing:
                 fetched_pricing[model_id] = pricing
             limits = self._extract_model_limits(entry)
             if limits:
                 fetched_limits[model_id] = limits
+        if available_ids:
+            self._available_model_ids = available_ids
+            self._verified_models = {}
+            logger.info(
+                f"Cached provider model list: {len(available_ids)} models"
+            )
         # Preserve models.dev data for models the provider does not cover
         dev_pricing_entries = {
             mid: self._fetched_pricing[mid]

@@ -71,6 +71,7 @@ class TaskManager:
             description: str = "",
             required_role: str = "",
             assigned_to: str = "",
+            model: str = "",
         ) -> Task:
         """
         Create a new task.
@@ -80,6 +81,8 @@ class TaskManager:
             description: Optional detailed description
             required_role: Required teammate role (e.g. 'frontend', 'backend')
             assigned_to: Specific teammate name to assign
+            model: Optional model id resolved by the model router; the
+                claiming teammate switches to this model when set
 
         Returns:
             Created task with auto-assigned ID
@@ -90,6 +93,7 @@ class TaskManager:
             description=description,
             required_role=required_role,
             assigned_to=assigned_to,
+            model=model,
         )
         self._save(task)
         self._next_id += 1

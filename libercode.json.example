@@ -15,7 +15,31 @@
   "dangerous_command_policy": "confirm",
   "dangerous_command_patterns_override": null,
   "dangerous_command_patterns_extra": [],
-  "models": {
-    "my-custom-model": { "context_window": 128000, "output_max": 4096 }
+  "dangerous_command_timeout": 1800,
+  "model_params": {
+    "my-custom-model": {
+      "context_window": 128000,
+      "output_max": 4096,
+      "pricing": { "input": 0.27, "output": 1.10, "cache_read": 0.07, "cache_creation": 0.34 }
+    }
+  },
+  "model_router": {
+    "enabled": false,
+    "lead": null,
+    "default": null,
+    "by_role": {
+      "frontend": "claude-sonnet-4",
+      "backend": "claude-opus-4"
+    },
+    "by_keyword": [
+      { "keywords": ["test", "unit test", "refactor"], "model": "deepseek-flash" }
+    ],
+    "classifier": {
+      "model": "deepseek-flash",
+      "categories": [
+        { "name": "trivial", "model": "deepseek-flash", "description": "simple mechanical edits, typos, formatting, small config changes" },
+        { "name": "complex", "model": "claude-opus-4", "description": "complex architecture, debugging, security-sensitive or large-scale work" }
+      ]
+    }
   }
 }

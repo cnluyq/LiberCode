@@ -31,6 +31,7 @@ class Task:
     worktree: str = ""
     required_role: str = ""
     assigned_to: str = ""
+    model: str = ""
 
     def to_dict(self) -> dict:
         """
@@ -51,6 +52,7 @@ class Task:
             "worktree": self.worktree,
             "required_role": self.required_role,
             "assigned_to": self.assigned_to,
+            "model": self.model,
         }
 
     @classmethod
@@ -76,4 +78,5 @@ class Task:
             worktree=data.get("worktree", ""),
             required_role=data.get("required_role", ""),
             assigned_to=data.get("assigned_to", ""),
+            model=data.get("model", ""),
         )

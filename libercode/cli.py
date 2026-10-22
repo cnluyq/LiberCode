@@ -457,7 +457,8 @@ async def async_repl_loop(lead, message_bus, task_manager, teammate_manager, log
                     tprint(" /sessions restore <name_or_number> - Restore a session")
                     tprint(" /sessions delete <name_or_number> - Delete a session")
                     tprint(" /connect [api_key] [base_url] - Switch LLM provider (interactive if no args)")
-                    tprint(" /model [model_id|list] - Show current model, switch model, or list available models")
+                    tprint(" /model [model_id|list|routes] - Show current model, switch model, list available models, or show model routing rules")
+                    tprint(" /route - Show/change runtime routing overrides (agent/role/default/lead/reset)")
                     tprint(" q, exit - Exit the application")
                     continue
 
@@ -601,10 +602,27 @@ async def async_repl_loop(lead, message_bus, task_manager, teammate_manager, log
                     args = parts[1:]
                     if not args:
                         tprint(f"Current model: {config.model_id}")
-                        tprint("Run '/model list' to list all available models.")
+                        if config.router.enabled:
+                            lead_model = config.resolve_lead_model()
+                            lead_note = (
+                                "" if lead_model == config.model_id else " (pinned)"
+                            )
+                            tprint(
+                                f"Model routing: enabled (lead model: {lead_model}{lead_note})"
+                            )
+                            for name, model in teammate_manager.pinned_models():
+                                tprint(f"  {name}: {model} (pinned)")
+                        else:
+                            tprint("Model routing: disabled")
+                        tprint(
+                            "Run '/model list' to list available models or '/model routes' to show routing rules."
+                        )
                         continue
                     if len(args) > 1:
-                        tprint("Usage: /model [model_id|list]")
+                        tprint("Usage: /model [model_id|list|routes]")
+                        continue
+                    if args[0] == "routes":
+                        tprint(config.router.describe())
                         continue
                     if args[0] == "list":
                         tprint(
@@ -628,23 +646,115 @@ async def async_repl_loop(lead, message_bus, task_manager, teammate_manager, log
                             tprint(f" {marker} {m}")
                         continue
                     new_model = args[0]
-                    old_model = config.model_id
-                    config.set_model(new_model)
                     tprint(f"Validating model '{new_model}' ...")
-                    try:
-                        await config.async_client.messages.create(
-                            model=new_model,
-                            max_tokens=1,
-                            messages=[{"role": "user", "content": "ping"}],
-                            timeout=30,
+                    if await config.validate_model(new_model, timeout=30):
+                        config.set_model(new_model)
+                        config.persist_env()
+                        tprint(f"Model switched to '{new_model}'.")
+                        if config.router.enabled:
+                            unaffected = []
+                            lead_rule = config.router.lead_rule()
+                            if lead_rule and config.resolve_lead_model() == lead_rule:
+                                unaffected.append(
+                                    f"lead stays on '{lead_rule}' (lead rule)"
+                                )
+                            for name, model in teammate_manager.pinned_models():
+                                unaffected.append(f"'{name}' stays on '{model}'")
+                            if unaffected:
+                                tprint(
+                                    "Note: model routing is enabled; the new model "
+                                    "only applies to agents without a routed model:"
+                                )
+                                for note in unaffected:
+                                    tprint(f"  - {note}")
+                    else:
+                        tprint(
+                            f"Model '{new_model}' is not available on the "
+                            "connected provider."
                         )
-                    except Exception as e:
-                        config.set_model(old_model)
-                        tprint(f"Model validation failed: {e}")
-                        tprint(f"Reverted to '{old_model}'.")
+                        tprint(
+                            "Run '/model list' to see the models available "
+                            "on this provider."
+                        )
+                    continue
+
+                if query.strip().startswith("/route"):
+                    if not config:
+                        tprint("Config unavailable.")
                         continue
-                    config.persist_env()
-                    tprint(f"Model switched to '{new_model}'.")
+                    parts = query.strip().split()
+                    args = parts[1:]
+
+                    if not args:
+                        overrides = config.route_overrides()
+                        tprint("Runtime route overrides (persisted with sessions):")
+                        shown = False
+                        if overrides.get("lead"):
+                            tprint(f"  lead: {overrides['lead']}")
+                            shown = True
+                        if overrides.get("default"):
+                            tprint(f"  default: {overrides['default']}")
+                            shown = True
+                        for role, model in sorted((overrides.get("role") or {}).items()):
+                            tprint(f"  role {role}: {model}")
+                            shown = True
+                        pinned = teammate_manager.pinned_models()
+                        for name, model in pinned:
+                            tprint(f"  agent {name}: {model}")
+                            shown = True
+                        if not shown:
+                            tprint("  (none)")
+                        if not config.router.enabled:
+                            tprint("  (routing disabled: lead/default/role overrides are inactive)")
+                        tprint("Usage: /route agent <name> <model|reset> | /route role <role> <model> | /route default <model> | /route lead <model> | /route reset")
+                        continue
+
+                    if args[0] == "reset":
+                        if len(args) != 1:
+                            tprint("Usage: /route reset")
+                            continue
+                        config.reset_route_overrides()
+                        tprint("All route overrides cleared; libercode.json rules apply again.")
+                        continue
+
+                    if args[0] in ("lead", "default") and len(args) == 2:
+                        model = args[1]
+                        tprint(f"Validating model '{model}' ...")
+                        if not await config.validate_model(model, timeout=30):
+                            tprint(f"Model '{model}' is not available on the connected provider.")
+                            continue
+                        config.set_route_override(args[0], model=model)
+                        tprint(f"{args[0]} rule overridden to '{model}' (persisted with session).")
+                        if not config.router.enabled:
+                            tprint("Note: model routing is disabled; this override is inactive until routing is enabled.")
+                        continue
+
+                    if args[0] == "role" and len(args) == 3:
+                        role, model = args[1], args[2]
+                        tprint(f"Validating model '{model}' ...")
+                        if not await config.validate_model(model, timeout=30):
+                            tprint(f"Model '{model}' is not available on the connected provider.")
+                            continue
+                        config.set_route_override("role", key=role, model=model)
+                        tprint(f"Role '{role}' overridden to '{model}' (persisted with session).")
+                        if not config.router.enabled:
+                            tprint("Note: model routing is disabled; this override is inactive until routing is enabled.")
+                        continue
+
+                    if args[0] == "agent" and len(args) == 3:
+                        name = args[1]
+                        value = args[2]
+                        if value == "reset":
+                            tprint(teammate_manager.set_member_model(name, None))
+                        else:
+                            tprint(f"Validating model '{value}' ...")
+                            if not await config.validate_model(value, timeout=30):
+                                tprint(f"Model '{value}' is not available on the connected provider.")
+                                continue
+                            tprint(teammate_manager.set_member_model(name, value))
+                        continue
+
+                    tprint("Usage: /route agent <name> <model|reset> | /route role <role> <model> | /route default <model> | /route lead <model> | /route reset")
                     continue
 
                 if query.strip().startswith("/sessions"):
@@ -806,6 +916,8 @@ async def async_repl_loop(lead, message_bus, task_manager, teammate_manager, log
                                     tprint("  Teammate inboxes: restored")
                                 if "team_config" in restored:
                                     tprint("  Team config: restored")
+                                if "routes" in restored:
+                                    tprint("  Routing overrides: restored")
                                 if "token_records" in restored:
                                     tprint(f"  Token records: {restored['token_records']} restored")
                         except Exception as e:

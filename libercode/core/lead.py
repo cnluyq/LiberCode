@@ -146,7 +146,7 @@ class LeadAgent:
             start_time = time.time()
             try:
                 response = await self.async_client.messages.create(
-                    model=self.config.model_id,
+                    model=self._active_model(),
                     system=self._get_system_prompt(),
                     messages=self.messages,
                     tools=self._get_tools(),
@@ -178,7 +178,7 @@ class LeadAgent:
                 error_str = str(e).lower()
                 if ("prompt_too_long" in error_str or "too many tokens" in error_str) and reactive_retries < MAX_REACTIVE_RETRIES:
                     self._logger.warning("Prompt too long, running reactive compaction")
-                    await async_reactive_compact(self.messages, self.async_client, self.config.model_id)
+                    await async_reactive_compact(self.messages, self.async_client, self._active_model())
                     CompactionTracker.record_compact("lead", "reactive")
                     reactive_retries += 1
                     continue
@@ -222,7 +222,7 @@ class LeadAgent:
                 self._logger.info(
                     f"Context ratio {input_tokens}/{context_window} exceeds {self.config.compact_history_ratio_threshold}, compacting history"
                 )
-                await async_compact_history(self.messages, self.async_client, self.config.model_id, self.config.compact_history_keep_latest_message_num, self.config.compact_history_keep_original_message_num)
+                await async_compact_history(self.messages, self.async_client, self._active_model(), self.config.compact_history_keep_latest_message_num, self.config.compact_history_keep_original_message_num)
                 CompactionTracker.record_compact("lead", "history")
 
             if hasattr(response, "model_dump"):
@@ -251,7 +251,7 @@ class LeadAgent:
             user_input_request_data = None
             for block in response.content:
                 if block.type == "tool_use":
-                    output = self._execute_tool(block.name, block.input)
+                    output = await self._execute_tool(block.name, block.input)
 
                     self._logger.info(f"Executing tool: {block.name}, result:\n{str(output)}")
 
@@ -342,6 +342,10 @@ class LeadAgent:
         lead_sys_prompt = prompt_path.read_text(encoding="utf-8")
         return lead_sys_prompt.format(workdir=self.config.workdir)
 
+    def _active_model(self) -> str:
+        """Resolve the model for the lead agent (model router lead rule or global)."""
+        return self.config.resolve_lead_model()
+
     def _get_tools(self) -> List[Dict]:
         """Get lead agent tools."""
         from libercode.tools.lead_tools import get_lead_tools
@@ -360,8 +364,14 @@ class LeadAgent:
         self.messages.clear()
         self._logger.info("Lead message history cleared")
 
-    def _execute_tool(self, tool_name: str, args: dict) -> str:
-        """Execute a tool with validation."""
+    async def _execute_tool(self, tool_name: str, args: dict) -> str:
+        """Execute a tool with validation.
+
+        Handlers may be async (e.g. model routing handlers that call the
+        optional LLM classifier); coroutine results are awaited here.
+        """
+        import inspect
+
         from libercode.tools.lead_tools import create_lead_tool_handlers, get_lead_tools
         from libercode.tools.validator import validate_and_fix_args
 
@@ -375,6 +385,7 @@ class LeadAgent:
             task_manager=self.task_manager,
             message_bus=self.message_bus,
             teammate_manager=self.teammate_manager,
+            config=self.config,
         )
 
         args_substr = str(fixed_args)[:100] + ("..." if len(str(fixed_args)) > 100 else "")
@@ -385,6 +396,8 @@ class LeadAgent:
             return f"Unknown tool: {tool_name}"
         try:
             result = handler(**fixed_args)
+            if inspect.isawaitable(result):
+                result = await result
         except Exception as e:
             self._logger.error(f"Tool {tool_name} failed: {e}")
             result = f"Error: {e}"
